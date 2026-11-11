@@ -1,0 +1,16 @@
+{
+  "name": "neon-arena",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Neon Arena - a small multiplayer browser FPS for friends",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "three": "0.170.0",
+    "ws": "8.18.0"
+  }
+}
