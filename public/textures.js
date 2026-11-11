@@ -124,7 +124,7 @@ function paintOver(rgb, size, draw) {
 
 // ------------------------------------------------------------------ materials
 // Concrete: blotchy grey with pits and stains. seams: draw formwork panel lines + tie holes.
-export function concrete({ size = 512, seed = 1, base = [138, 136, 132], seams = false } = {}) {
+export function concrete({ size = 512, seed = 1, base = [138, 136, 132], seams = false, paint = null } = {}) {
   const r = rng(seed);
   const big = fbm(size, 3, 4, r), fine = fbm(size, 24, 3, r), stain = fbm(size, 2, 4, r);
   const rgb = new Uint8ClampedArray(size * size * 3), h = new Float32Array(size * size), ro = new Float32Array(size * size);
@@ -154,7 +154,57 @@ export function concrete({ size = 512, seed = 1, base = [138, 136, 132], seams =
       }
     }
   }
-  return pack(size, rgb, h, ro, 3.5);
+  return pack(size, rgb, h, ro, 3.5, paint ? paintOver(rgb, size, paint) : null);
+}
+
+// Dock floor: pale concrete slabs with yellow safety lines and tyre marks.
+export function dockFloor({ size = 1024 } = {}) {
+  return concrete({ size, seed: 15, base: [168, 164, 156], paint: (g) => {
+    g.globalAlpha = 0.18; g.strokeStyle = '#222'; g.lineWidth = 3;      // slab joints
+    for (let i = 0; i <= 4; i++) {
+      g.beginPath(); g.moveTo(i * size / 4, 0); g.lineTo(i * size / 4, size); g.stroke();
+      g.beginPath(); g.moveTo(0, i * size / 4); g.lineTo(size, i * size / 4); g.stroke();
+    }
+    g.globalAlpha = 0.8; g.strokeStyle = '#d9b32a'; g.lineWidth = 12; // yellow walkway lines
+    g.beginPath(); g.moveTo(size * 0.05, 0); g.lineTo(size * 0.05, size); g.stroke();
+    g.beginPath(); g.moveTo(0, size * 0.55); g.lineTo(size, size * 0.55); g.stroke();
+    g.globalAlpha = 0.12; g.strokeStyle = '#111'; g.lineWidth = 26;    // tyre marks
+    g.beginPath(); g.moveTo(size * 0.2, size); g.bezierCurveTo(size * 0.3, size * 0.6, size * 0.6, size * 0.5, size * 0.8, 0); g.stroke();
+    g.beginPath(); g.moveTo(size * 0.26, size); g.bezierCurveTo(size * 0.36, size * 0.6, size * 0.66, size * 0.5, size * 0.86, 0); g.stroke();
+    g.globalAlpha = 1;
+  } });
+}
+
+// Brick wall: staggered bricks with mortar. Tint per building with material.color.
+export function brick({ size = 512, seed = 51 } = {}) {
+  const r = rng(seed);
+  const fine = fbm(size, 32, 3, r), blot = fbm(size, 3, 4, r);
+  const rgb = new Uint8ClampedArray(size * size * 3), h = new Float32Array(size * size), ro = new Float32Array(size * size);
+  const rows = 16, bh = size / rows, bw = size / 4;
+  const tone = Array.from({ length: rows * 9 }, () => 0.8 + r() * 0.35);
+  for (let y = 0; y < size; y++) {
+    const row = Math.floor(y / bh), off = row % 2 ? bw / 2 : 0;
+    for (let x = 0; x < size; x++) {
+      const i = y * size + x;
+      const bx = (x + off) % size, col = Math.floor(bx / bw);
+      const mortar = y % bh < 3 || bx % bw < 3;
+      const d = clamp01((blot[i] - 0.5) * 2.5); // grime
+      const v = mortar ? 0.55 + fine[i] * 0.1 : tone[row * 9 + col] * (0.9 + (fine[i] - 0.5) * 0.25);
+      const g = 1 - d * 0.3;
+      if (mortar) { rgb[i * 3] = 150 * v * g; rgb[i * 3 + 1] = 146 * v * g; rgb[i * 3 + 2] = 138 * v * g; }
+      else { rgb[i * 3] = 225 * v * g; rgb[i * 3 + 1] = 205 * v * g; rgb[i * 3 + 2] = 190 * v * g; }
+      h[i] = mortar ? 0.1 : 0.7 + fine[i] * 0.3;
+      ro[i] = mortar ? 0.95 : 0.8 - d * 0.1;
+    }
+  }
+  return pack(size, rgb, h, ro, 6);
+}
+
+// Small animated-looking water ripples (normal map only).
+export function waves({ size = 256 } = {}) {
+  const r = rng(61);
+  const h = fbm(size, 8, 4, r);
+  return { normalMap: tex(normalCanvas(h, size, 6), false) };
 }
 
 // Asphalt ground with aggregate speckle, painted lane lines and wet (glossy) patches.

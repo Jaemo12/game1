@@ -69,10 +69,17 @@ export function trimMaterial({
 }
 
 // ------------------------------------------------------------------ sky
-export function makeSky() {
+export function makeSky(cfg) {
+  const v3 = (a) => new THREE.Vector3(...a);
   const mat = new THREE.ShaderMaterial({
     side: THREE.BackSide, depthWrite: false, fog: false,
-    uniforms: { uTime },
+    uniforms: {
+      uTime,
+      uTop: { value: v3(cfg.top) }, uMid: { value: v3(cfg.mid) }, uHor: { value: v3(cfg.hor) }, uHorSun: { value: v3(cfg.horSun) },
+      uSunDir: { value: v3(cfg.sunDir).normalize() }, uSunGlow: { value: v3(cfg.sunGlow) },
+      uCloudDark: { value: v3(cfg.cloudDark) }, uCloudLit: { value: v3(cfg.cloudLit) },
+      uBelow: { value: v3(cfg.below) }, uClouds: { value: cfg.clouds },
+    },
     vertexShader: /* glsl */`
       varying vec3 vDir;
       void main() {
@@ -81,7 +88,8 @@ export function makeSky() {
       }`,
     fragmentShader: /* glsl */`
       varying vec3 vDir;
-      uniform float uTime;
+      uniform float uTime, uClouds;
+      uniform vec3 uTop, uMid, uHor, uHorSun, uSunDir, uSunGlow, uCloudDark, uCloudLit, uBelow;
       float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
       float noise(vec2 p) {
         vec2 i = floor(p), f = fract(p);
@@ -95,21 +103,18 @@ export function makeSky() {
       }
       void main() {
         float h = vDir.y;
-        // Dusk: deep blue overhead, warm orange-pink at the horizon (brightest towards the sun)
-        vec3 sunDir = normalize(vec3(-0.75, 0.25, -0.5));
-        float toSun = max(dot(normalize(vec3(vDir.x, 0.0, vDir.z)), normalize(vec3(sunDir.x, 0.0, sunDir.z))), 0.0);
-        vec3 top = vec3(0.03, 0.045, 0.12);
-        vec3 mid = vec3(0.16, 0.13, 0.26);
-        vec3 hor = mix(vec3(0.55, 0.28, 0.3), vec3(1.1, 0.5, 0.22), toSun);
-        vec3 col = mix(mid, top, smoothstep(0.08, 0.7, h));
+        vec2 flatSun = normalize(uSunDir.xz + 1e-4);
+        float toSun = max(dot(normalize(vDir.xz + 1e-4), flatSun), 0.0);
+        vec3 hor = mix(uHor, uHorSun, toSun);
+        vec3 col = mix(uMid, uTop, smoothstep(0.08, 0.7, h));
         col = mix(hor, col, smoothstep(-0.02, 0.3, h));
-        col += vec3(1.2, 0.55, 0.25) * pow(max(dot(vDir, sunDir), 0.0), 64.0) * 1.5;  // sun glow
-        // Low rain clouds, lit pink from below by the city
+        col += uSunGlow * pow(max(dot(vDir, uSunDir), 0.0), 64.0) * 1.5;   // sun glow
+        col += uSunGlow * pow(max(dot(vDir, uSunDir), 0.0), 900.0) * 6.0;  // sun disc
         vec2 uv = vDir.xz / (h + 0.18) * 1.6 + vec2(uTime * 0.012, uTime * 0.004);
         float cl = smoothstep(0.42, 0.85, fbm(uv));
-        vec3 cloudCol = mix(vec3(0.22, 0.17, 0.26), vec3(0.8, 0.42, 0.3), toSun * (1.0 - smoothstep(0.0, 0.5, h)));
-        col = mix(col, cloudCol, cl * smoothstep(0.0, 0.25, h) * 0.7);
-        col = mix(vec3(0.12, 0.1, 0.14), col, smoothstep(-0.15, 0.0, h));  // below the horizon (haze)
+        vec3 cloudCol = mix(uCloudDark, uCloudLit, toSun * (1.0 - smoothstep(0.0, 0.5, h)) + 0.25 * step(0.5, uSunDir.y));
+        col = mix(col, cloudCol, cl * smoothstep(0.0, 0.25, h) * uClouds);
+        col = mix(uBelow, col, smoothstep(-0.15, 0.0, h));
         gl_FragColor = vec4(col, 1.0);
       }`,
   });
@@ -120,7 +125,7 @@ export function makeSky() {
 }
 
 // ------------------------------------------------------------------ rain
-export function makeRain(count) {
+export function makeRain(count, color = [0.16, 0.18, 0.24]) {
   const pos = new Float32Array(count * 6), end = new Float32Array(count * 2);
   for (let i = 0; i < count; i++) {
     const x = rand(-25, 25), y = rand(0, 26), z = rand(-25, 25);
@@ -133,7 +138,7 @@ export function makeRain(count) {
   const uCam = { value: new THREE.Vector3() };
   const mat = new THREE.ShaderMaterial({
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-    uniforms: { uTime, uCam, uColor: { value: new THREE.Color(0.16, 0.18, 0.24) } },
+    uniforms: { uTime, uCam, uColor: { value: new THREE.Color(...color) } },
     vertexShader: /* glsl */`
       attribute float aEnd;
       uniform float uTime;

@@ -69,7 +69,36 @@
     #feed { right: 24px; top: 20px; display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
     #feed div { background: #05060dcc; border: 1px solid #ffffff22; padding: 5px 10px; border-radius: 6px; font-size: 14px; animation: fade 5s forwards; }
     @keyframes fade { 0%, 80% { opacity: 1 } 100% { opacity: 0 } }
-    #kd { left: 50%; top: 14px; transform: translateX(-50%); display: flex; gap: 6px; }
+    #modebar { left: 50%; top: 10px; transform: translateX(-50%); white-space: nowrap; font-size: 13px; letter-spacing: .12em;
+      background: #05060dcc; border: 1px solid #ffffff22; border-radius: 8px; padding: 6px 14px; font-variant-numeric: tabular-nums; }
+    #modebar .vs { opacity: .5; margin: 0 4px; }
+    #modebar .hot { color: #ff5a4f; text-shadow: 0 0 10px #ff5a4f; }
+    #prompt { left: 50%; top: 60%; transform: translateX(-50%); display: none; font-size: 15px; padding: 7px 14px; border-radius: 8px;
+      background: #05060dcc; border: 1px solid #ffa04066; color: #ffe2c0; text-align: center; max-width: calc(100vw - 32px); }
+    #prompt kbd { background: #ffa04033; border: 1px solid #ffa04088; border-radius: 4px; padding: 1px 7px; }
+    #actbar { left: 50%; top: 66%; transform: translateX(-50%); width: 260px; display: none; text-align: center; font-size: 12px; letter-spacing: .25em; }
+    #actbar .track { height: 8px; margin-top: 6px; border-radius: 4px; background: #ffffff22; overflow: hidden; }
+    #actFill { height: 100%; width: 0; background: linear-gradient(90deg, #ffa040, #ffe080); box-shadow: 0 0 10px #ffa040; }
+    #death.spectating { background: linear-gradient(transparent 60%, #20001080); justify-content: flex-end; padding-bottom: 18vh; }
+    #death.spectating h2 { font-size: 26px; }
+    #scoreboard tr.teamrow td { padding-top: 12px; font-weight: 800; letter-spacing: .2em; font-size: 12px; }
+    #scoreboard tr.dead td { opacity: .45; }
+    .modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+    .modes .md { all: unset; cursor: pointer; text-align: center; font-size: 12px; font-weight: 700; padding: 8px 4px; border-radius: 8px;
+      background: #ffffff0d; border: 1px solid #ffffff1c; transition: border-color .15s, box-shadow .15s; }
+    .modes .md:hover { border-color: #ffffff55; }
+    .modes .md.on { border-color: var(--pink); color: #ffd6f4; box-shadow: 0 0 14px #ff2bd640; }
+    .modes .md:focus-visible { outline: 2px solid var(--pink); outline-offset: 2px; }
+    #endscreen { position: fixed; inset: 0; z-index: 40; display: none; align-items: center; justify-content: center;
+      background: radial-gradient(ellipse at center, #10142ae0, #05060df5); }
+    .endpanel { width: min(440px, calc(100vw - 32px)); text-align: center; padding: 28px; border-radius: 16px;
+      background: #0a0c18ee; border: 1px solid #ffffff22; }
+    #endTitle { margin: 0 0 8px; font-size: 48px; letter-spacing: .14em; }
+    #endTitle.win { color: #7cff9f; text-shadow: 0 0 24px #7cff9f88; }
+    #endTitle.lose { color: #ff6b6b; text-shadow: 0 0 24px #ff6b6b88; }
+    #endSub { letter-spacing: .15em; opacity: .85; }
+    #endMvp, #endMe { margin-top: 10px; font-size: 14px; opacity: .8; }
+    #kd { left: 50%; top: 52px; transform: translateX(-50%); display: flex; gap: 6px; }
     #kd div { background: #05060dcc; border: 1px solid #00e5ff33; border-radius: 8px; padding: 5px 12px; text-align: center; min-width: 64px; }
     #kd .lbl { display: block; font-size: 9px; letter-spacing: .2em; opacity: .55; }
     #kd span:not(.lbl) { display: inline-block; font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; }
@@ -113,6 +142,17 @@
     .panel select { width: 100%; padding: 9px 10px; border-radius: 8px; border: 1px solid #ffffff22; background: #10132a;
       color: var(--text); font-size: 15px; outline: none; }
     .row { display: flex; gap: 8px; }
+    .maps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .maps .mp { all: unset; cursor: pointer; border-radius: 10px; overflow: hidden; border: 1px solid #ffffff1c;
+      background: #ffffff08; transition: border-color .15s, transform .15s, box-shadow .15s; }
+    .maps .mp:hover { transform: translateY(-2px); border-color: #ffffff55; }
+    .maps .mp.on { border-color: var(--cyan); box-shadow: 0 0 16px #00e5ff40; }
+    .maps .mp:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+    .maps .sky { height: 46px; position: relative; }
+    .maps .sky::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 14px; background: var(--ground); }
+    .maps .mp span { display: block; padding: 5px 6px 6px; font-size: 11px; font-weight: 700; letter-spacing: .05em; white-space: nowrap; }
+    #loading { position: fixed; inset: 0; z-index: 60; display: none; align-items: center; justify-content: center;
+      background: #05060de6; font-size: 18px; letter-spacing: .2em; }
     .avatars { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
     .avatars .av { all: unset; cursor: pointer; display: flex; flex-direction: column; align-items: center; border-radius: 10px;
       background: radial-gradient(ellipse at 50% 30%, color-mix(in srgb, var(--ac) 18%, transparent), #ffffff08 70%);
@@ -138,6 +178,19 @@
   </style>
 </head>
 <body>
+  <div id="endscreen" role="dialog" aria-labelledby="endTitle">
+    <div class="endpanel">
+      <h1 id="endTitle">VICTORY</h1>
+      <div id="endSub"></div>
+      <div id="endMvp"></div>
+      <div id="endMe"></div>
+      <div class="row" style="margin-top:18px">
+        <button type="button" id="endAgain" style="flex:1">PLAY AGAIN</button>
+        <button type="button" id="endMenu" class="ghost">Menu</button>
+      </div>
+    </div>
+  </div>
+  <div id="loading">LOADING MAP…</div>
   <div id="errbox" role="alert"><b>Something went wrong</b><span></span><button type="button" onclick="this.parentNode.style.display='none'">Dismiss</button></div>
   <div id="menu">
     <div class="panel">
@@ -145,6 +198,11 @@
       <p class="sub" id="menuSub">Practice mode · free-for-all vs bots</p>
       <label for="name">Your name</label>
       <input id="name" type="text" maxlength="16" placeholder="Player" autocomplete="off" />
+      <label>Mode</label>
+      <div id="modes" class="modes"></div>
+      <div id="modeDesc" class="tag"></div>
+      <label>Map</label>
+      <div id="maps" class="maps"></div>
       <label>Avatar</label>
       <div id="avatars" class="avatars"></div>
       <div id="avatarTag" class="tag"></div>
@@ -182,7 +240,7 @@
       <div id="status"></div>
       <div class="keys">
         <kbd>W A S D</kbd> move · <kbd>Shift</kbd> sprint · <kbd>C</kbd> crouch (slide while running) · <kbd>Space</kbd> jump · <kbd>Left click</kbd> shoot · <kbd>Right click</kbd> aim/scope ·
-        <kbd>1–6</kbd> / <kbd>Wheel</kbd> switch weapon · <kbd>Q</kbd> last weapon · <kbd>R</kbd> reload · <kbd>Tab</kbd> scores · <kbd>Esc</kbd> menu
+        <kbd>1–6</kbd> / <kbd>Wheel</kbd> switch weapon · <kbd>Q</kbd> last weapon · <kbd>R</kbd> reload · <kbd>E</kbd> plant/defuse · <kbd>Tab</kbd> scores · <kbd>Esc</kbd> menu
       </div>
     </div>
   </div>
@@ -192,6 +250,9 @@
   <div class="hud" id="vignette"></div>
   <div class="hud" id="center"></div>
   <div class="hud" id="ping"></div>
+  <div class="hud" id="modebar"></div>
+  <div class="hud" id="prompt"></div>
+  <div class="hud" id="actbar"><div id="actLabel">PLANTING</div><div class="track"><div id="actFill"></div></div></div>
   <div class="hud" id="kd">
     <div><span class="lbl">KILLS</span><span id="kdK">0</span></div>
     <div><span class="lbl">DEATHS</span><span id="kdD">0</span></div>
