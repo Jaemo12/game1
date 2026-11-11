@@ -153,6 +153,16 @@
     .maps .mp span { display: block; padding: 5px 6px 6px; font-size: 11px; font-weight: 700; letter-spacing: .05em; white-space: nowrap; }
     #loading { position: fixed; inset: 0; z-index: 60; display: none; align-items: center; justify-content: center;
       background: #05060de6; font-size: 18px; letter-spacing: .2em; }
+    button.wide { width: 100%; }
+    #online .tag { margin-top: 6px; }
+    #roomInfo { font-size: 14px; margin-bottom: 8px; }
+    #roomInfo b { color: var(--cyan); letter-spacing: .15em; }
+    #inviteLink { font-size: 12px !important; padding: 8px 10px !important; }
+    #roomPlayers { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+    #roomPlayers span { font-size: 12px; padding: 3px 8px; border-radius: 6px; background: #ffffff12; border: 1px solid #ffffff22; }
+    body.is-client .host-only { display: none; }
+    body.in-room .room-locked { display: none; }
+    body.is-client #restart { display: none !important; }
     .avatars { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
     .avatars .av { all: unset; cursor: pointer; display: flex; flex-direction: column; align-items: center; border-radius: 10px;
       background: radial-gradient(ellipse at 50% 30%, color-mix(in srgb, var(--ac) 18%, transparent), #ffffff08 70%);
@@ -198,15 +208,35 @@
       <p class="sub" id="menuSub">Practice mode · free-for-all vs bots</p>
       <label for="name">Your name</label>
       <input id="name" type="text" maxlength="16" placeholder="Player" autocomplete="off" />
-      <label>Mode</label>
-      <div id="modes" class="modes"></div>
-      <div id="modeDesc" class="tag"></div>
-      <label>Map</label>
-      <div id="maps" class="maps"></div>
+      <label>Play online</label>
+      <div id="online">
+        <div id="onlineIdle">
+          <button type="button" id="createRoom" class="ghost wide">Create room &amp; invite friends</button>
+          <div class="tag">You host: pick mode, map and bots below, then share the link.</div>
+        </div>
+        <div id="onlineRoom" style="display:none">
+          <div id="roomInfo"></div>
+          <div class="row" id="inviteRow">
+            <input id="inviteLink" type="text" readonly aria-label="Invite link" />
+            <button type="button" id="copyLink" class="ghost">Copy link</button>
+          </div>
+          <div id="roomPlayers"></div>
+          <button type="button" id="leaveRoom" class="ghost wide">Leave room</button>
+        </div>
+      </div>
+      <div class="host-only">
+        <label>Mode</label>
+        <div id="modes" class="modes"></div>
+        <div id="modeDesc" class="tag"></div>
+      </div>
+      <div class="host-only room-locked">
+        <label>Map</label>
+        <div id="maps" class="maps"></div>
+      </div>
       <label>Avatar</label>
       <div id="avatars" class="avatars"></div>
       <div id="avatarTag" class="tag"></div>
-      <div class="row">
+      <div class="row host-only">
         <div style="flex:1">
           <label for="bots">Bots <span id="botsVal"></span></label>
           <input id="bots" type="range" min="1" max="7" step="1" value="3" />

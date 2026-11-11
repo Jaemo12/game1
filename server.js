@@ -1,17 +1,20 @@
-// Neon Arena server: serves the game files and relays multiplayer state.
-// Movement is client-side (we trust friends); the server owns health, kills and respawns.
+// Neon Arena server: serves the game files and relays multiplayer rooms.
+//
+// How multiplayer works: whoever creates a room is the "host". The host's browser runs the
+// match (bots, health, kills, rounds) and sends snapshots; everyone else sends their movement
+// and hits to the host. This server just keeps rooms and forwards messages, so it stays tiny
+// and fits on a free hosting plan.
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
-import { SPAWNS, WEAPONS, MAX_HP, RESPAWN_MS } from './public/map.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || process.argv[2]) || 3000;
-const TICK_MS = 50; // 20 snapshots per second
-const MAX_PLAYERS = 8;
+const MAX_HUMANS = 8;
 
+// ---------------------------------------------------------------- static files
 const ROOTS = {
   '/three/': path.join(__dirname, 'node_modules', 'three'),
   '/': path.join(__dirname, 'public'),
@@ -33,156 +36,137 @@ const server = http.createServer((req, res) => {
   if (!file.startsWith(root)) { res.writeHead(403); res.end(); return; }
   fs.readFile(file, (err, data) => {
     if (err) { res.writeHead(404); res.end('Not found'); return; }
-    res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream' });
+    const isThree = prefix === '/three/';
+    res.writeHead(200, {
+      'Content-Type': MIME[path.extname(file)] || 'application/octet-stream',
+      // Game files change with every update; the three.js library never does.
+      'Cache-Control': isThree ? 'public, max-age=86400' : 'no-cache',
+    });
     res.end(data);
   });
 });
 
-// ---------- Rooms ----------
-const COLORS = [0x00e5ff, 0xff2bd6, 0xff8a00, 0x7cff4f, 0x8b5cff, 0xffe600, 0xff4f6d, 0x4fa3ff];
-const rooms = new Map(); // roomId -> { players: Map<id, player> }
+// ---------------------------------------------------------------- rooms
+const rooms = new Map(); // code -> { code, hostId, settings, clients: Map<id, client> }
 let nextId = 1;
+const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; // no I/O to avoid confusion
 
-function getRoom(id) {
-  if (!rooms.has(id)) rooms.set(id, { players: new Map() });
-  return rooms.get(id);
+function newCode() {
+  for (;;) {
+    let c = '';
+    for (let i = 0; i < 4; i++) c += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)];
+    if (!rooms.has(c)) return c;
+  }
 }
+
+const clean = (s, n) => String(s || '').replace(/[<>&"]/g, '').slice(0, n);
 
 function send(ws, msg) {
-  if (ws.readyState === 1) ws.send(JSON.stringify(msg));
-}
-function broadcast(room, msg, exceptId) {
-  const data = JSON.stringify(msg);
-  for (const p of room.players.values()) {
-    if (p.id !== exceptId && p.ws.readyState === 1) p.ws.send(data);
-  }
+  if (ws.readyState === 1) ws.send(typeof msg === 'string' ? msg : JSON.stringify(msg));
 }
 
-function publicInfo(p) {
-  return { id: p.id, name: p.name, color: p.color, kills: p.kills, deaths: p.deaths };
-}
-
-function pickSpawn(room, selfId) {
-  // Spawn point farthest from living enemies.
-  let best = SPAWNS[0], bestScore = -1;
-  for (const s of SPAWNS) {
-    let nearest = Infinity;
-    for (const p of room.players.values()) {
-      if (p.id === selfId || !p.alive) continue;
-      nearest = Math.min(nearest, Math.hypot(p.p[0] - s[0], p.p[2] - s[2]));
-    }
-    const score = nearest + Math.random() * 6;
-    if (score > bestScore) { bestScore = score; best = s; }
-  }
-  return [...best];
-}
-
-function respawn(room, p) {
-  p.hp = MAX_HP;
-  p.alive = true;
-  p.p = pickSpawn(room, p.id);
-  p.yaw = Math.atan2(p.p[0], p.p[2]); // face the center
-  broadcast(room, { t: 'respawn', id: p.id, p: p.p, yaw: p.yaw });
-}
-
-const wss = new WebSocketServer({ server, path: '/ws' });
+const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 64 * 1024 });
 
 wss.on('connection', (ws) => {
-  let room = null;
-  let me = null;
+  const me = { id: nextId++, ws, room: null, name: 'Player', avatar: 'kaze' };
+  let alive = true;
+  ws.on('pong', () => (alive = true));
+  const heartbeat = setInterval(() => {
+    if (!alive) { ws.terminate(); return; }
+    alive = false;
+    ws.ping();
+  }, 20000);
 
   ws.on('message', (raw) => {
+    const text = raw.toString();
     let msg;
-    try { msg = JSON.parse(raw); } catch { return; }
-
-    if (msg.t === 'join' && !me) {
-      const roomId = String(msg.room || 'lobby').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 24) || 'lobby';
-      room = getRoom(roomId);
-      if (room.players.size >= MAX_PLAYERS) { send(ws, { t: 'full' }); ws.close(); return; }
-      const used = new Set([...room.players.values()].map((p) => p.color));
-      me = {
-        id: nextId++, ws,
-        name: String(msg.name || 'Player').replace(/[<>]/g, '').slice(0, 16) || 'Player',
-        color: COLORS.find((c) => !used.has(c)) ?? COLORS[0],
-        p: [0, 0, 0], yaw: 0, pitch: 0, hp: MAX_HP, alive: true,
-        kills: 0, deaths: 0, lastShot: 0,
-      };
-      room.players.set(me.id, me);
-      me.p = pickSpawn(room, me.id);
-      me.yaw = Math.atan2(me.p[0], me.p[2]);
-      send(ws, {
-        t: 'welcome', id: me.id, room: roomId, p: me.p, yaw: me.yaw,
-        players: [...room.players.values()].map(publicInfo),
-      });
-      broadcast(room, { t: 'join', player: publicInfo(me) }, me.id);
-      return;
-    }
-    if (!me) return;
+    try { msg = JSON.parse(text); } catch { return; }
+    const room = me.room;
 
     switch (msg.t) {
-      case 'state': {
-        if (!me.alive || !Array.isArray(msg.p) || msg.p.length !== 3) return;
-        if (!msg.p.every(Number.isFinite)) return;
-        me.p = msg.p;
-        me.yaw = +msg.yaw || 0;
-        me.pitch = +msg.pitch || 0;
-        break;
-      }
-      case 'shot': {
-        // Visual-only: tracer for everyone else.
-        if (!me.alive) return;
-        broadcast(room, { t: 'shot', id: me.id, o: msg.o, e: msg.e }, me.id);
-        break;
-      }
-      case 'hit': {
-        // "Favor the shooter": the client tells us what it hit on its screen,
-        // we just sanity-check it.
-        const w = WEAPONS.rifle;
-        const target = room.players.get(msg.target);
-        const now = Date.now();
-        if (!me.alive || !target || !target.alive || target.id === me.id) return;
-        if (now - me.lastShot < w.interval * 0.7) return;
-        me.lastShot = now;
-        const dist = Math.hypot(target.p[0] - me.p[0], target.p[1] - me.p[1], target.p[2] - me.p[2]);
-        if (dist > w.range + 10) return;
-        const dmg = msg.head ? w.head : w.body;
-        target.hp = Math.max(0, target.hp - dmg);
-        broadcast(room, { t: 'damage', target: target.id, by: me.id, hp: target.hp, head: !!msg.head });
-        if (target.hp <= 0) {
-          target.alive = false;
-          target.deaths++;
-          me.kills++;
-          broadcast(room, {
-            t: 'kill', killer: me.id, victim: target.id, head: !!msg.head,
-            scores: [...room.players.values()].map(publicInfo),
-          });
-          setTimeout(() => { if (room.players.has(target.id)) respawn(room, target); }, RESPAWN_MS);
-        }
-        break;
-      }
       case 'ping':
         send(ws, { t: 'pong', ts: msg.ts });
-        break;
+        return;
+
+      case 'create': {
+        if (room) return;
+        me.name = clean(msg.name, 16) || 'Host';
+        me.avatar = clean(msg.avatar, 16);
+        const code = newCode();
+        const r = { code, hostId: me.id, settings: msg.settings || {}, clients: new Map([[me.id, me]]) };
+        rooms.set(code, r);
+        me.room = r;
+        send(ws, { t: 'created', room: code, id: me.id });
+        console.log(`room ${code} created`);
+        return;
+      }
+
+      case 'join': {
+        if (room) return;
+        const r = rooms.get(String(msg.room || '').toUpperCase());
+        if (!r) { send(ws, { t: 'error', reason: 'Room not found. Ask your friend for a new link.' }); return; }
+        if (r.clients.size >= MAX_HUMANS) { send(ws, { t: 'error', reason: 'That room is full (8 players).' }); return; }
+        me.name = clean(msg.name, 16) || 'Player';
+        me.avatar = clean(msg.avatar, 16);
+        r.clients.set(me.id, me);
+        me.room = r;
+        send(ws, { t: 'joined', room: r.code, id: me.id, hostId: r.hostId, settings: r.settings });
+        const host = r.clients.get(r.hostId);
+        if (host) send(host.ws, { t: 'peer-join', id: me.id, name: me.name, avatar: me.avatar });
+        return;
+      }
+
+      case 'settings': // host updates the room settings (mode, map...)
+        if (room && room.hostId === me.id) room.settings = msg.settings || {};
+        return;
+
+      // Joiner -> host: movement, hits, actions
+      case 'state':
+      case 'hit': {
+        if (!room || room.hostId === me.id) return;
+        const host = room.clients.get(room.hostId);
+        if (host) { msg.from = me.id; send(host.ws, msg); }
+        return;
+      }
+
+      // Anyone -> everyone else: shot visuals (tracers and sounds)
+      case 'shot': {
+        if (!room) return;
+        if (room.hostId !== me.id) msg.id = me.id; // joiners can only send their own shots
+        const out = JSON.stringify(msg);
+        for (const c of room.clients.values()) if (c !== me) send(c.ws, out);
+        return;
+      }
+
+      // Host -> everyone (or one player when msg.to is set): snapshots and events
+      case 'snap':
+      case 'ev': {
+        if (!room || room.hostId !== me.id) return;
+        if (msg.to) {
+          const c = room.clients.get(msg.to);
+          if (c) send(c.ws, text);
+          return;
+        }
+        for (const c of room.clients.values()) if (c !== me) send(c.ws, text);
+        return;
+      }
     }
   });
 
   ws.on('close', () => {
-    if (!me) return;
-    room.players.delete(me.id);
-    broadcast(room, { t: 'leave', id: me.id });
-    for (const [id, r] of rooms) if (r.players.size === 0) rooms.delete(id);
+    clearInterval(heartbeat);
+    const r = me.room;
+    if (!r) return;
+    r.clients.delete(me.id);
+    if (r.hostId === me.id) {
+      for (const c of r.clients.values()) send(c.ws, { t: 'host-left' });
+      rooms.delete(r.code);
+      console.log(`room ${r.code} closed (host left)`);
+    } else {
+      const host = r.clients.get(r.hostId);
+      if (host) send(host.ws, { t: 'peer-leave', id: me.id });
+    }
   });
 });
-
-// Snapshot loop
-setInterval(() => {
-  for (const room of rooms.values()) {
-    if (room.players.size === 0) continue;
-    const players = [...room.players.values()].map((p) => ({
-      id: p.id, p: p.p, yaw: p.yaw, pitch: p.pitch, hp: p.hp, alive: p.alive,
-    }));
-    broadcast(room, { t: 'snap', players });
-  }
-}, TICK_MS);
 
 server.listen(PORT, () => console.log(`Neon Arena running on http://localhost:${PORT}`));

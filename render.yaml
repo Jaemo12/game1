@@ -1,0 +1,12 @@
+# Render blueprint: a free web service in Frankfurt that serves the game and the room server.
+# In Render: New + -> Blueprint -> pick this GitHub repo -> Apply.
+services:
+  - type: web
+    name: neon-arena
+    runtime: node
+    region: frankfurt
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true

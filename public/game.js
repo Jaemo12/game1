@@ -11,6 +11,7 @@ import {
 } from './atmosphere.js';
 import { AVATARS, avatarById, buildAvatar } from './avatars.js';
 import { buildNav, findPath } from './nav.js';
+import { net, connect, send as netSend, waitFor, leave as netLeave } from './net.js';
 import {
   setMaxAnisotropy, concrete, asphalt, dockFloor, brick, waves, container, crate, steelPlates, hazard,
   gunmetal, polymer, walnut, boxUV,
@@ -468,7 +469,7 @@ let mode = 'ffa', M = MODES.ffa;
 const match = { over: false, score: { blue: 0, red: 0 }, endsAt: Infinity, round: 0, attack: 'blue', phase: 'live', phaseEnds: 0, plan: 'A' };
 
 const player = {
-  name: settings.name, color: avatarById(settings.avatar).color, isPlayer: true, team: null, busy: false,
+  id: 'me', name: settings.name, color: avatarById(settings.avatar).color, isPlayer: true, team: null, busy: false,
   pos: new THREE.Vector3(), vel: new THREE.Vector3(), yaw: 0, pitch: 0,
   hp: MAX_HP, alive: true, grounded: false, kills: 0, deaths: 0, streak: 0, respawnAt: 0, killedBy: null,
 };
@@ -487,7 +488,7 @@ function makeBot(i, team) {
   const name = unique ? av.name : BOT_NAMES[i % BOT_NAMES.length];
   const model = makeCharacter(color, name, av.id);
   const b = {
-    name, color, team, isPlayer: false, ...model,
+    id: 'b' + i, avatar: av.id, name, color, team, isPlayer: false, ...model,
     pos: new THREE.Vector3(), vel: new THREE.Vector3(), yaw: 0,
     hp: MAX_HP, alive: true, grounded: false, kills: 0, deaths: 0, respawnAt: 0, flash: 0, busy: false,
     ai: { target: null, aggro: null, aggroT: 0, react: 0, nextShot: 0, scan: 0, goal: null,
@@ -532,37 +533,54 @@ function respawn(e) {
   e.busy = false;
   if (e.isPlayer) {
     e.pitch = 0;
-    refillAmmo();
-    Object.assign(stance, { crouch: 0, sliding: false, slideT: 0, sprinting: false, sprint: 0 });
-    e.height = H;
-    e.crouching = false;
-    gun.zoom = 0;
-    equip(W.id, true);
-    $('death').style.display = 'none';
-    updateHud();
+    resetLocalPlayer();
+  } else if (e.human) {
+    // Another person (multiplayer): tell their game where they spawned.
+    e.group.visible = true;
+    snapPose(e, e.pos.x, e.pos.y, e.pos.z, e.yaw);
+    hostEv({ to: e.id, k: 'respawn', p: [e.pos.x, e.pos.y, e.pos.z], yaw: e.yaw });
   } else {
     // Bots pick a weapon each life (weights in BOT_LOADOUT).
     let r = Math.random(), pick = 'rifle';
     for (const [id, w] of BOT_LOADOUT) { if (r < w) { pick = id; break; } r -= w; }
-    e.weapon = WEAPONS[pick];
-    e.gunMesh.scale.z = { sniper: 1.6, shotgun: 0.8, pistol: 0.45, cannon: 0.6 }[pick] || 1;
-    e.gunMesh.scale.x = e.gunStrip.scale.x = e.weapon.id === 'shotgun' ? 1.6 : 1;
-    e.gunStrip.material.color.set(e.weapon.color).multiplyScalar(2.2);
+    setEntWeapon(e, pick);
     e.group.visible = true;
     Object.assign(e.ai, { target: null, aggro: null, goal: null, react: 0, path: [], pathGoal: null, hold: null });
     e.ai.lastPos.copy(e.pos);
   }
 }
 
+function resetLocalPlayer() {
+  refillAmmo();
+  Object.assign(stance, { crouch: 0, sliding: false, slideT: 0, sprinting: false, sprint: 0 });
+  player.height = H;
+  player.crouching = false;
+  player.busy = false;
+  gun.zoom = 0;
+  equip(W.id, true);
+  $('death').style.display = 'none';
+  updateHud();
+}
+
 function setupMatch() {
   mode = MODES[settings.mode] ? settings.mode : 'ffa';
   M = MODES[mode];
   for (const b of bots) scene.remove(b.group);
-  // Teams: bots alternate red/blue starting with red, so you (blue) get the smaller share of bots.
-  bots = Array.from({ length: settings.bots }, (_, i) => makeBot(i, M.teams ? (i % 2 === 0 ? 'red' : 'blue') : null));
   player.team = M.teams ? 'blue' : null;
   player.color = M.teams ? TEAMS.blue.color : avatarById(settings.avatar).color;
+  // People in the room (multiplayer) alternate red/blue; bots then fill whichever team is smaller.
+  bots = [];
+  let alt = 'red';
+  for (const h of humans.values()) {
+    const team = M.teams ? alt : null;
+    alt = otherTeam(alt);
+    const av = avatarById(h.avatar);
+    bots.push(makeRemote({ id: h.id, name: h.name, avatar: av.id, color: team ? TEAMS[team].color : av.color, team, human: true }));
+  }
+  for (let i = 0; i < settings.bots; i++) bots.push(makeBot(i, M.teams ? smallerTeam([player, ...bots]) : null));
   ents = [player, ...bots];
+  hostEv({ k: 'reset' });
+  if (isHost()) netSend({ t: 'settings', settings: { map: MAP.id, mode } });
   for (const e of ents) { e.kills = 0; e.deaths = 0; e.alive = false; }
   player.streak = 0;
   Object.assign(match, {
@@ -618,9 +636,16 @@ function kill(victim, killer, head, weapon) {
   if (killer && killer !== victim) killer.kills++;
   if (M.teams && !M.rounds && killer && killer !== victim && killer.team !== victim.team) match.score[killer.team]++;
   victim.respawnAt = M.rounds ? Infinity : time + RESPAWN_MS / 1000; // no respawns within a Demolition round
+  if (charge.state === 'carried' && charge.carrier === victim) dropCharge();
+  killFx(victim, killer, head, weapon);
+  hostEv({ k: 'kill', v: victim.id, by: idOf(killer), h: head ? 1 : 0, w: weapon?.id || null });
+  checkWin();
+}
+
+// What everyone sees when someone dies (also used by joiners, from the host's kill event).
+function killFx(victim, killer, head, weapon) {
   burst(victim.pos.clone().setY(victim.pos.y + 1), victim.color, 40, 0.12);
   addFeed(killer, victim, head, weapon);
-  if (charge.state === 'carried' && charge.carrier === victim) dropCharge();
   if (victim.isPlayer) {
     victim.killedBy = killer;
     gun.ads = false;
@@ -641,7 +666,6 @@ function kill(victim, killer, head, weapon) {
     sfx.blip(880, 0.08, 0.2); setTimeout(() => sfx.blip(1320, 0.12, 0.2), 70);
   }
   renderScores();
-  checkWin();
 }
 
 function checkWin() {
@@ -1170,7 +1194,7 @@ qualEl.onchange = () => {
 function openMenu() {
   $('menu').style.display = 'flex';
   document.body.classList.toggle('prestart', !started);
-  $('play').textContent = started ? 'RESUME' : 'PLAY';
+  $('play').textContent = started ? 'RESUME' : net.role === 'solo' && roomFromUrl ? 'JOIN ROOM' : 'PLAY';
   $('restart').style.display = started ? 'block' : 'none';
 }
 
@@ -1283,7 +1307,7 @@ $('avatars').addEventListener('click', (e) => {
 const TEST = new URLSearchParams(location.search).has('test');
 if (TEST) {
   window.__arena = { player, get bots() { return bots; }, keys, gun, setFiring: (v) => (firing = v), equip,
-    renderer, scene, camera, composer, THREE, pause: (v) => (testPause = v), get stance() { return stance; }, vm, gunCam, get match() { return match; }, get charge() { return charge; }, get mode() { return mode; }, get ents() { return ents; },
+    renderer, scene, camera, composer, THREE, pause: (v) => (testPause = v), get stance() { return stance; }, vm, gunCam, get match() { return match; }, get charge() { return charge; }, get mode() { return mode; }, get ents() { return ents; }, net, get proxies() { return proxies; }, get humans() { return humans; },
     get weapon() { return W.id; } };
 }
 
@@ -1330,8 +1354,10 @@ renderer.domElement.addEventListener('webglcontextlost', (e) => {
 renderer.domElement.addEventListener('click', () => { if (started && !locked) lock(); });
 
 $('play').onclick = () => {
+  if (net.role === 'solo' && roomFromUrl) { joinRoom(roomFromUrl); return; } // invited by a friend
   const botsChanged = readMenu();
   $('status').textContent = '';
+  if (isClient()) { lock(); return; } // the host controls the match
   if (!started || botsChanged || match.over) { setupMatch(); started = true; }
   document.body.classList.remove('prestart');
   lock();
@@ -1545,7 +1571,7 @@ function melee() {
   const dmg = (heavy ? W.heavy : W.body) * (back ? W.backstab : 1);
   const at = new THREE.Vector3(best.pos.x, best.pos.y + 1.1, best.pos.z);
   if (back && best.hp - dmg > 0) centerMsg('BACKSTAB');
-  damage(best, player, dmg, false, W);
+  applyPlayerHit(best, dmg, false, W);
   burst(at, best.color, 10);
   burst(at, W.color, 6);
   showHitmarker(back);
@@ -1579,6 +1605,7 @@ function handleFire() {
   for (const b of bots) if (b.alive && areEnemies(player, b)) targets.push(b.body, b.head); // shots pass through teammates
   const muzzle = new THREE.Vector3(0.16 * (1 - gun.zoom), -0.13 + 0.05 * gun.zoom, -0.75).applyMatrix4(camera.matrixWorld);
   const hits = new Map(); // bot -> total damage from this shot
+  const ends = [];
   const sniper = W.id === 'sniper';
 
   for (let i = 0; i < W.pellets; i++) {
@@ -1601,11 +1628,13 @@ function handleFire() {
       decal(hit, W.color);
     }
     tracer(muzzle, end, W.color, sniper ? 2.5 : W.pellets > 1 ? 0.7 : 1, sniper ? 0.3 : 0.07);
+    ends.push(end);
   }
 
   let headAny = false;
+  sendShot(player.id, muzzle, ends, W, W.color);
   for (const [ent, h] of hits) {
-    damage(ent, player, Math.round(h.dmg), h.head, W);
+    applyPlayerHit(ent, Math.round(h.dmg), h.head, W);
     burst(h.point, ent.color, 6);
     headAny ||= h.head;
   }
@@ -1684,6 +1713,7 @@ function botGoal(b) {
 }
 
 function updateBot(b, dt) {
+  if (b.remote) { if (b.alive) interpRemote(b, dt); return; }
   if (!b.alive) return;
   const ai = b.ai, d = DIFF[settings.difficulty], bg = BOT_GUNS[b.weapon.id];
   if (match.over || (mode === 'demo' && match.phase === 'freeze')) { // frozen before the round starts
@@ -1802,6 +1832,7 @@ function botShoot(b, tgt, dist, d, bg) {
     if (hit) { burst(end, b.color, 3); decal(hit, w.id === 'rifle' ? b.color : w.color); }
   }
   tracer(origin, end, w.id === 'rifle' ? b.color : w.color, width, life);
+  sendShot(b.id, origin, [end], w, w.id === 'rifle' ? b.color : w.color);
   b.model.kick();
   const hearDist = b.pos.distanceTo(player.pos);
   sfx.weapon(w, clamp(1 - hearDist / 60, 0, 0.6));
@@ -1882,7 +1913,10 @@ function startRound() {
     site: null, timer: 0, progress: 0, actor: null });
   const role = player.team === match.attack ? 'ATTACK' : 'DEFEND';
   centerMsg(`${halftime ? 'HALFTIME · SWITCHING SIDES · ' : ''}ROUND ${match.round} · ${role}`, 3200);
-  if (charge.carrier === player) setTimeout(() => centerMsg('YOU HAVE THE CHARGE · PLANT IT AT A OR B', 3000), 3300);
+  hostEv({ k: 'round', n: match.round, attack: match.attack, half: halftime ? 1 : 0 });
+  const carrier = charge.carrier;
+  if (carrier === player) setTimeout(() => centerMsg('YOU HAVE THE CHARGE · PLANT IT AT A OR B', 3000), 3300);
+  else if (carrier?.human) setTimeout(() => hostEv({ to: carrier.id, k: 'msg', text: 'YOU HAVE THE CHARGE · PLANT IT AT A OR B', ms: 3000 }), 3300);
 }
 
 function roundEnd(winner, reason) {
@@ -1892,11 +1926,16 @@ function roundEnd(winner, reason) {
   match.score[winner]++;
   charge.actor = null;
   charge.progress = 0;
+  roundEndFx(winner, reason);
+  hostEv({ k: 'roundEnd', win: winner, why: reason });
+  renderScores();
+}
+
+function roundEndFx(winner, reason) {
   const won = winner === player.team;
   centerMsg(`${won ? 'ROUND WON' : 'ROUND LOST'} · ${reason}`, 4000);
   if (won) { sfx.blip(660, 0.12, 0.2); setTimeout(() => sfx.blip(990, 0.2, 0.2), 120); }
   else { sfx.blip(330, 0.2, 0.2, 'sawtooth'); setTimeout(() => sfx.blip(220, 0.3, 0.2, 'sawtooth'), 150); }
-  renderScores();
 }
 
 function dropCharge() {
@@ -1932,6 +1971,7 @@ function demoAct(e, dt) {
       c.carrier = null;
       c.beepAt = time;
       centerMsg(`CHARGE PLANTED AT ${c.site.name}`, 2500);
+      hostEv({ k: 'msg', text: `CHARGE PLANTED AT ${c.site.name}`, ms: 2500, snd: 1 });
       sfx.blip(880, 0.12, 0.25); setTimeout(() => sfx.blip(880, 0.12, 0.25), 180);
     } else {
       roundEnd(e.team, 'CHARGE DEFUSED');
@@ -1941,6 +1981,17 @@ function demoAct(e, dt) {
 }
 
 function explode() {
+  explodeFx();
+  hostEv({ k: 'boom', x: charge.pos.x, z: charge.pos.z });
+  for (const e of ents) {
+    if (!e.alive) continue;
+    const d = e.pos.distanceTo(charge.pos);
+    if (d < 14) damage(e, null, 220 * (1 - d / 14), false, null);
+  }
+  charge.state = 'none';
+}
+
+function explodeFx() {
   const at = charge.pos.clone().setY(1);
   burst(at, 0xff8a00, 90, 0.28);
   burst(at, 0xffe0a0, 50, 0.16);
@@ -1953,12 +2004,21 @@ function explode() {
   sfx.blip(45, 1.0, 0.5, 'sine');
   const shake = Math.max(0, 1 - player.pos.distanceTo(at) / 40);
   feel.shake = Math.max(feel.shake, shake * 0.9);
-  for (const e of ents) {
-    if (!e.alive) continue;
-    const d = e.pos.distanceTo(charge.pos);
-    if (d < 14) damage(e, null, 220 * (1 - d / 14), false, null);
+}
+
+// Planted charge: beeps faster as it counts down, with a blinking light.
+function chargeBeep() {
+  const c = charge;
+  const interval = c.timer > 10 ? 1 : c.timer > 4 ? 0.5 : 0.22;
+  if (time >= c.beepAt) {
+    c.beepAt = time + interval;
+    sfx.blip(1700, 0.05, Math.max(0.05, 0.3 - player.pos.distanceTo(c.pos) / 120));
+    chargeMesh.userData.lamp.visible = true;
+    chargeMesh.userData.light.intensity = 6;
+  } else if (time > c.beepAt - interval + 0.08) {
+    chargeMesh.userData.lamp.visible = false;
+    chargeMesh.userData.light.intensity = 0;
   }
-  charge.state = 'none';
 }
 
 // Runs every frame while playing: Demolition rounds, the charge, time limits.
@@ -1975,6 +2035,7 @@ function updateMode(dt) {
       match.phase = 'live';
       match.phaseEnds = time + M.roundTime;
       centerMsg('GO!', 1000);
+      hostEv({ k: 'msg', text: 'GO!', ms: 1000 });
       sfx.blip(660, 0.15, 0.2);
     }
   } else if (match.phase === 'end') {
@@ -1994,23 +2055,15 @@ function updateMode(dt) {
         c.state = 'carried';
         c.carrier = picker;
         if (picker === player) centerMsg('YOU PICKED UP THE CHARGE', 1800);
+        else if (picker.human) hostEv({ to: picker.id, k: 'msg', text: 'YOU PICKED UP THE CHARGE', ms: 1800 });
       }
     }
     player.busy = !!keys.KeyE && player.alive && demoAct(player, dt);
+    for (const e of bots) if (e.human) e.busy = e.actHeld && demoAct(e, dt); // friends holding E
     if (c.actor && time - c.actedAt > 0.15) { c.actor = null; c.progress = 0; } // they stopped
     if (c.state === 'planted') {
       c.timer -= dt;
-      const interval = c.timer > 10 ? 1 : c.timer > 4 ? 0.5 : 0.22;
-      if (time >= c.beepAt) {
-        c.beepAt = time + interval;
-        const vol = Math.max(0.05, 0.3 - player.pos.distanceTo(c.pos) / 120);
-        sfx.blip(1700, 0.05, vol);
-        chargeMesh.userData.lamp.visible = true;
-        chargeMesh.userData.light.intensity = 6;
-      } else if (time > c.beepAt - interval + 0.08) {
-        chargeMesh.userData.lamp.visible = false;
-        chargeMesh.userData.light.intensity = 0;
-      }
+      chargeBeep();
       if (c.timer <= 0) {
         explode();
         return roundEnd(match.attack, 'CHARGE DETONATED');
@@ -2044,6 +2097,9 @@ function updateChargeMesh() {
 function endMatch({ team, winner, draw }) {
   if (match.over) return;
   match.over = true;
+  hostEv({ k: 'end', team: team || null, win: idOf(winner), draw: draw ? 1 : 0 });
+  $('endAgain').style.display = isClient() ? 'none' : '';
+  $('endMenu').textContent = isClient() ? 'Close (host restarts)' : 'Menu';
   let title, sub;
   if (draw) { title = 'DRAW'; sub = `${match.score.blue} : ${match.score.red}`; }
   else if (team) {
@@ -2110,6 +2166,395 @@ function updateModeHud() {
   }
 }
 
+// ---------------------------------------------------------------- multiplayer
+// Roles (net.role): 'solo' (default), 'host' (runs the match for everyone: bots, health, kills, rounds)
+// or 'client' (joined a friend's room: moves locally, sends hits to the host, shows what the host sends).
+const humans = new Map();  // host: other people in the room, id -> { id, name, avatar }
+const proxies = new Map(); // client: everyone else in the match, id -> entity
+const nowS = () => performance.now() / 1000;
+const isClient = () => net.role === 'client';
+const isHost = () => net.role === 'host';
+const idOf = (e) => (e ? e.id : null);
+function entById(id) {
+  if (id === null || id === undefined) return null;
+  if (id === player.id) return player;
+  return bots.find((b) => b.id === id) || null;
+}
+// Host -> everyone (or one player with ev.to)
+function hostEv(ev) { if (isHost()) netSend({ t: 'ev', ...ev }); }
+const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+// Weapon shown in a bot's / remote player's hands.
+function setEntWeapon(e, id) {
+  e.weapon = WEAPONS[id] || WEAPONS.rifle;
+  e.gunMesh.scale.z = { sniper: 1.6, shotgun: 0.8, pistol: 0.45, cannon: 0.6, knife: 0.3 }[e.weapon.id] || 1;
+  e.gunMesh.scale.x = e.gunStrip.scale.x = e.weapon.id === 'shotgun' ? 1.6 : 1;
+  e.gunStrip.material.color.set(e.weapon.color).multiplyScalar(2.2);
+}
+
+// A player or bot simulated somewhere else (another browser, or the host).
+function makeRemote({ id, name, avatar, color, team, human }) {
+  const model = makeCharacter(color, name, avatar);
+  const e = {
+    id, name, color, team, avatar, human, remote: true, isPlayer: false, ...model,
+    pos: new THREE.Vector3(), vel: new THREE.Vector3(), yaw: 0, pitch: 0,
+    hp: MAX_HP, alive: true, grounded: true, crouching: false, kills: 0, deaths: 0, respawnAt: Infinity,
+    flash: 0, busy: false, actHeld: false, buf: [], hitTimes: {},
+    ai: { target: null, aggro: null, aggroT: 0, hold: null },
+  };
+  e.body.userData.ent = e;
+  e.head.userData.ent = e;
+  setEntWeapon(e, 'rifle');
+  return e;
+}
+
+// Smooth movement for remote entities: show them ~100 ms in the past, between two updates.
+function pushPose(e, x, y, z, yaw) { e.buf.push({ t: nowS(), x, y, z, yaw }); if (e.buf.length > 40) e.buf.shift(); }
+function snapPose(e, x, y, z, yaw) { e.buf.length = 0; e.pos.set(x, y, z); e.yaw = yaw; pushPose(e, x, y, z, yaw); }
+function interpRemote(e, dt) {
+  const b = e.buf;
+  if (!b.length) return;
+  const rt = nowS() - 0.1;
+  while (b.length >= 2 && b[1].t <= rt) b.shift();
+  const a = b[0], c = b[1];
+  let x = a.x, y = a.y, z = a.z, yaw = a.yaw;
+  if (c && rt > a.t) {
+    const k = Math.min(1, (rt - a.t) / Math.max(1e-3, c.t - a.t));
+    x += (c.x - a.x) * k; y += (c.y - a.y) * k; z += (c.z - a.z) * k;
+    yaw = lerpAngle(a.yaw, c.yaw, k);
+  }
+  if (dt > 0) { e.vel.x = (x - e.pos.x) / dt; e.vel.z = (z - e.pos.z) / dt; }
+  e.pos.set(x, y, z);
+  e.yaw = yaw;
+}
+
+// The local player's hits: solo/host apply them; joiners send them to the host,
+// which trusts what the shooter saw ("favor the shooter") after a sanity check.
+function applyPlayerHit(target, dmg, head, weapon) {
+  if (isClient()) netSend({ t: 'hit', target: target.id, dmg: Math.round(dmg), head: head ? 1 : 0, w: weapon.id });
+  else damage(target, player, dmg, head, weapon);
+}
+
+// Tracers and gun sounds for everyone else.
+function sendShot(id, origin, ends, weapon, color) {
+  if (net.role === 'solo') return;
+  const r = (v) => Math.round(v * 100) / 100;
+  netSend({ t: 'shot', id, w: weapon.id, c: color, o: [r(origin.x), r(origin.y), r(origin.z)], e: ends.map((p) => [r(p.x), r(p.y), r(p.z)]) });
+}
+function onShot(m) {
+  if (m.id === player.id || !Array.isArray(m.e)) return;
+  const w = WEAPONS[m.w] || WEAPONS.rifle;
+  const o = new THREE.Vector3(...m.o);
+  const sniper = w.id === 'sniper';
+  for (const p of m.e.slice(0, 12)) {
+    const end = new THREE.Vector3(...p);
+    tracer(o, end, m.c ?? w.color, sniper ? 2.5 : w.pellets > 1 ? 0.7 : 1, sniper ? 0.3 : 0.07);
+    burst(end, m.c ?? w.color, w.pellets > 1 ? 1 : 3);
+  }
+  sfx.weapon(w, clamp(1 - o.distanceTo(player.pos) / 60, 0, 0.6));
+  const shooter = entById(m.id);
+  if (shooter && shooter.model) shooter.model.kick();
+}
+
+// ----- host side
+function teamCounts(list) { const n = { blue: 0, red: 0 }; for (const e of list) if (e.team) n[e.team]++; return n; }
+const smallerTeam = (list) => { const n = teamCounts(list); return n.blue < n.red ? 'blue' : 'red'; };
+
+function onPeerJoin(m) {
+  const h = { id: m.id, name: m.name || 'Player', avatar: AVATARS.some((a) => a.id === m.avatar) ? m.avatar : 'kaze' };
+  humans.set(h.id, h);
+  const team = M.teams ? smallerTeam(ents) : null;
+  const av = avatarById(h.avatar);
+  const e = makeRemote({ id: h.id, name: h.name, avatar: av.id, color: team ? TEAMS[team].color : av.color, team, human: true });
+  bots.unshift(e);
+  ents = [player, ...bots];
+  if (M.rounds && match.phase !== 'freeze') { e.alive = false; e.group.visible = false; } // joins at the next round
+  else respawn(e);
+  centerMsg(`${h.name.toUpperCase()} JOINED`, 1800);
+  hostEv({ k: 'msg', text: `${h.name.toUpperCase()} JOINED`, ms: 1800 });
+  renderScores();
+  updateOnlineUI();
+}
+function onPeerLeave(m) {
+  const h = humans.get(m.id);
+  humans.delete(m.id);
+  const e = entById(m.id);
+  if (e) {
+    if (charge.carrier === e) dropCharge();
+    if (charge.actor === e) { charge.actor = null; charge.progress = 0; }
+    scene.remove(e.group);
+    bots = bots.filter((b) => b !== e);
+    ents = [player, ...bots];
+    renderScores();
+  }
+  if (h) { centerMsg(`${h.name.toUpperCase()} LEFT`, 1800); hostEv({ k: 'msg', text: `${h.name.toUpperCase()} LEFT`, ms: 1800 }); }
+  updateOnlineUI();
+}
+function onState(m) {
+  const e = entById(m.from);
+  if (!e || !e.human) return;
+  e.pitch = +m.pitch || 0;
+  e.grounded = !!m.g;
+  e.crouching = !!m.cr;
+  e.actHeld = !!m.act;
+  if (m.w && e.weapon?.id !== m.w && WEAPONS[m.w]) setEntWeapon(e, m.w);
+  if (e.alive && Array.isArray(m.p) && m.p.every(Number.isFinite)) pushPose(e, m.p[0], m.p[1], m.p[2], +m.yaw || 0);
+}
+function onHitClaim(m) {
+  const shooter = entById(m.from), target = entById(m.target), w = WEAPONS[m.w];
+  if (!shooter || !target || !w || !shooter.alive || !target.alive || !areEnemies(shooter, target)) return;
+  if (match.over || (mode === 'demo' && match.phase === 'freeze')) return;
+  const now = performance.now();
+  if (now - (shooter.hitTimes[target.id] || 0) < (w.melee ? 300 : w.interval * 0.6)) return; // faster than the gun fires
+  shooter.hitTimes[target.id] = now;
+  if (shooter.pos.distanceTo(target.pos) > (w.melee ? 4 : w.range + 10)) return;
+  const maxDmg = w.melee ? w.heavy * w.backstab : w.head * (w.pellets || 1);
+  damage(target, shooter, Math.min(Math.max(0, +m.dmg || 0), maxDmg), !!m.head, w);
+}
+
+let snapAcc = 0;
+function hostNet(dt) {
+  snapAcc += dt;
+  if (snapAcc < 0.05) return; // 20 snapshots per second
+  snapAcc = 0;
+  const r = (v) => Math.round(v * 100) / 100;
+  const E = ents.map((e) => [
+    e.id, r(e.pos.x), r(e.pos.y), r(e.pos.z), r(e.yaw), Math.ceil(e.hp), e.alive ? 1 : 0, e.team || '',
+    e.kills, e.deaths, e === player ? W.id : (e.weapon?.id || 'rifle'), e.name,
+    e === player ? settings.avatar : e.avatar, e.color, e === player || e.human ? 1 : 0,
+  ]);
+  const c = charge;
+  netSend({
+    t: 'snap', E,
+    m: { mode, map: MAP.id, score: match.score, round: match.round, attack: match.attack, phase: match.phase,
+      pe: r(match.phaseEnds - time), te: match.endsAt === Infinity ? -1 : r(match.endsAt - time) },
+    c: { s: c.state, cr: idOf(c.carrier), p: [r(c.pos.x), r(c.pos.z)], site: c.site?.name || null, tm: r(c.timer),
+      a: idOf(c.actor), ac: c.action, pr: r(c.progress) },
+  });
+}
+
+// ----- client side
+let stateAcc = 0, scoreAcc = 0;
+function clientNet(dt) {
+  stateAcc += dt;
+  if (stateAcc >= 0.05) {
+    stateAcc = 0;
+    const r = (v) => Math.round(v * 100) / 100;
+    netSend({ t: 'state', p: [r(player.pos.x), r(player.pos.y), r(player.pos.z)], yaw: r(player.yaw), pitch: r(player.pitch),
+      g: player.grounded ? 1 : 0, cr: player.crouching ? 1 : 0, act: keys.KeyE ? 1 : 0, w: W.id });
+  }
+  player.busy = !!keys.KeyE && charge.actor === player;
+  if (charge.state === 'planted') { charge.timer -= dt; chargeBeep(); }
+  scoreAcc += dt;
+  if (scoreAcc > 1) { scoreAcc = 0; renderScores(); }
+}
+
+function setupClient() {
+  for (const b of bots) scene.remove(b.group);
+  bots = [];
+  proxies.clear();
+  ents = [player];
+  player.alive = false; // the host spawns us
+  player.kills = player.deaths = player.streak = 0;
+  $('feed').innerHTML = '';
+  $('endscreen').style.display = 'none';
+  setupModeVisuals();
+}
+
+function onSnap(s) {
+  const seen = new Set();
+  for (const [id, x, y, z, yaw, hp, alive, team, kills, deaths, w, name, avatar, color, human] of s.E) {
+    seen.add(id);
+    if (id === player.id) {
+      if (hp < player.hp && player.alive) flash($('vignette'), 0.9);
+      player.hp = hp; player.kills = kills; player.deaths = deaths;
+      player.team = team || null; player.color = color;
+      if (!alive) player.alive = false;
+      updateHud();
+      continue;
+    }
+    let e = proxies.get(id);
+    if (e && (e.team !== (team || null) || e.color !== color || e.avatar !== avatar)) { scene.remove(e.group); proxies.delete(id); e = null; }
+    if (!e) {
+      e = makeRemote({ id, name, avatar: avatarById(avatar).id, color, team: team || null, human: !!human });
+      e.avatar = avatar;
+      proxies.set(id, e);
+      snapPose(e, x, y, z, yaw);
+    } else if (alive && !e.alive) snapPose(e, x, y, z, yaw); // just respawned: jump there, don't slide
+    else if (alive) pushPose(e, x, y, z, yaw);
+    if (hp < e.hp && alive) e.flash = 0.1;
+    e.hp = hp; e.alive = !!alive; e.kills = kills; e.deaths = deaths;
+    e.group.visible = e.alive;
+    if (e.weapon?.id !== w && WEAPONS[w]) setEntWeapon(e, w);
+  }
+  for (const [id, e] of proxies) if (!seen.has(id)) { scene.remove(e.group); proxies.delete(id); }
+  bots = [...proxies.values()];
+  ents = [player, ...bots];
+
+  const m = s.m;
+  if (m.mode !== mode) { mode = m.mode; M = MODES[mode]; setupModeVisuals(); }
+  match.score = m.score; match.round = m.round; match.attack = m.attack; match.phase = m.phase;
+  match.phaseEnds = time + m.pe;
+  match.endsAt = m.te < 0 ? Infinity : time + m.te;
+  const c = s.c;
+  charge.state = c.s;
+  charge.carrier = entById(c.cr);
+  charge.pos.set(c.p[0], 0, c.p[1]);
+  if (charge.state === 'carried' && charge.carrier) charge.pos.copy(charge.carrier.pos);
+  charge.site = MAP.sites.find((x) => x.name === c.site) || null;
+  charge.timer = c.tm;
+  charge.actor = entById(c.a);
+  charge.action = c.ac;
+  charge.progress = c.pr;
+}
+
+function onEvent(ev) {
+  switch (ev.k) {
+    case 'kill': {
+      const v = entById(ev.v);
+      if (!v) return;
+      v.alive = false;
+      killFx(v, entById(ev.by), !!ev.h, WEAPONS[ev.w] || null);
+      return;
+    }
+    case 'respawn':
+      player.pos.set(...ev.p);
+      player.vel.set(0, 0, 0);
+      player.yaw = ev.yaw;
+      player.hp = MAX_HP;
+      player.alive = true;
+      resetLocalPlayer();
+      return;
+    case 'msg':
+      centerMsg(ev.text, ev.ms || 1800);
+      if (ev.snd) { sfx.blip(880, 0.12, 0.25); setTimeout(() => sfx.blip(880, 0.12, 0.25), 180); }
+      return;
+    case 'round':
+      match.attack = ev.attack;
+      centerMsg(`${ev.half ? 'HALFTIME · SWITCHING SIDES · ' : ''}ROUND ${ev.n} · ${player.team === ev.attack ? 'ATTACK' : 'DEFEND'}`, 3200);
+      return;
+    case 'roundEnd': roundEndFx(ev.win, ev.why); return;
+    case 'boom': charge.pos.set(ev.x, 0, ev.z); explodeFx(); return;
+    case 'end': endMatch({ team: ev.team || null, winner: entById(ev.win), draw: !!ev.draw }); return;
+    case 'reset':
+      $('endscreen').style.display = 'none';
+      $('feed').innerHTML = '';
+      player.streak = 0;
+      match.over = false;
+      return;
+  }
+}
+
+// ----- rooms (menu)
+const roomFromUrl = (new URLSearchParams(location.search).get('room') || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4);
+const inviteUrl = () => `${location.origin}${location.pathname}?room=${net.room}`;
+
+function updateOnlineUI() {
+  const inRoom = net.role !== 'solo';
+  const invited = !inRoom && !!roomFromUrl;
+  document.body.classList.toggle('in-room', inRoom);
+  document.body.classList.toggle('is-client', isClient() || invited);
+  $('onlineIdle').style.display = inRoom || invited ? 'none' : 'block';
+  $('onlineRoom').style.display = inRoom || invited ? 'block' : 'none';
+  $('leaveRoom').textContent = invited ? 'Play solo instead' : 'Leave room';
+  if (invited) {
+    $('roomInfo').innerHTML = `You're invited to room <b>${roomFromUrl}</b>. Pick your name and avatar, then press <b>JOIN ROOM</b>.`;
+    $('inviteRow').style.display = 'none';
+    $('roomPlayers').innerHTML = '';
+    $('play').textContent = 'JOIN ROOM';
+    return;
+  }
+  if (!inRoom) return;
+  $('inviteRow').style.display = 'flex';
+  $('inviteLink').value = inviteUrl();
+  const names = isHost()
+    ? [`${settings.name} (you · host)`, ...[...humans.values()].map((h) => h.name)]
+    : ents.filter((e) => e === player || e.human).map((e) => (e === player ? `${e.name} (you)` : e.name));
+  $('roomInfo').innerHTML = `${isHost() ? 'Hosting' : 'Playing in'} room <b>${net.room}</b> · ${names.length} ${names.length === 1 ? 'player' : 'players'}` +
+    (isHost() ? '<br><span class="tag">Keep this tab open: your game runs the match for everyone.</span>' : '');
+  $('roomPlayers').innerHTML = names.map((n) => `<span>${escapeHtml(n)}</span>`).join('');
+}
+
+function wireNet() {
+  Object.assign(net.handlers, {
+    'peer-join': onPeerJoin, 'peer-leave': onPeerLeave, state: onState, hit: onHitClaim,
+    shot: onShot, snap: onSnap, ev: onEvent,
+    'host-left': () => { window.showGameError?.('The host left the room. Going back to solo...'); backToSolo(); },
+  });
+  net.onClose = () => { window.showGameError?.('Lost connection to the room. Going back to solo...'); backToSolo(); };
+}
+function backToSolo() {
+  started = false;
+  netLeave();
+  setTimeout(() => { location.href = location.pathname; }, 2500);
+}
+
+async function createRoom() {
+  readMenu();
+  lock(); // needs the click
+  $('status').textContent = 'Creating room...';
+  try {
+    await connect();
+    wireNet();
+    netSend({ t: 'create', name: settings.name, avatar: settings.avatar, settings: { map: MAP.id, mode: settings.mode } });
+    const r = await waitFor('created');
+    Object.assign(net, { role: 'host', id: r.id, hostId: r.id, room: r.room });
+    player.id = r.id;
+    history.replaceState(null, '', `?room=${r.room}`);
+    $('status').textContent = '';
+    setupMatch();
+    started = true;
+    document.body.classList.remove('prestart');
+    updateOnlineUI();
+  } catch (err) {
+    net.role = 'solo';
+    $('status').textContent = `${err.message} Try again in a moment (a sleeping free server can take up to a minute to wake).`;
+  }
+}
+
+async function joinRoom(code) {
+  readMenu();
+  lock();
+  $('status').textContent = `Joining room ${code}...`;
+  try {
+    await connect();
+    wireNet();
+    netSend({ t: 'join', room: code, name: settings.name, avatar: settings.avatar });
+    const r = await waitFor('joined');
+    if (r.settings?.map && r.settings.map !== MAP.id) {
+      // The room plays another map: load it, then join again.
+      netLeave();
+      settings.map = r.settings.map;
+      saveSettings();
+      $('loading').style.display = 'flex';
+      setTimeout(() => location.reload(), 30);
+      return;
+    }
+    Object.assign(net, { role: 'client', id: r.id, hostId: r.hostId, room: r.room });
+    player.id = r.id;
+    $('status').textContent = '';
+    setupClient();
+    started = true;
+    document.body.classList.remove('prestart');
+    updateOnlineUI();
+  } catch (err) {
+    net.role = 'solo';
+    $('status').textContent = err.message;
+  }
+}
+
+$('createRoom').onclick = createRoom;
+$('copyLink').onclick = () => {
+  navigator.clipboard?.writeText(inviteUrl()).then(() => { $('copyLink').textContent = 'Copied!'; setTimeout(() => ($('copyLink').textContent = 'Copy link'), 1500); });
+  $('inviteLink').select();
+};
+$('leaveRoom').onclick = () => {
+  if (net.role === 'solo') { location.href = location.pathname; return; } // decline invite
+  started = false;
+  netLeave();
+  location.href = location.pathname;
+};
+
 // ---------------------------------------------------------------- main loop
 const clock = new THREE.Clock();
 let bob = 0, scopedShown = false;
@@ -2124,28 +2569,37 @@ function frame() {
 const feel = { roll: 0, dip: 0, prevVy: 0, wasGrounded: true, speedFov: 0, slideTilt: 0, shake: 0 };
 
 let testPause = false; // ?test only: freezes gameplay while still rendering
+let netHudAcc = 0;
 
 function tick(dt) {
-  const running = started && locked && !testPause;
+  // Online matches keep running while you're in the menu (everyone else is still playing).
+  const running = started && (locked || net.role !== 'solo') && !testPause;
   updateAtmosphere(dt);
 
   if (running) {
     time += dt;
-    updateMode(dt);
+    if (!isClient()) updateMode(dt);
     updatePlayer(dt);
     handleFire();
     for (const b of bots) updateBot(b, dt);
-    for (const e of ents) if (!e.alive && time >= e.respawnAt) respawn(e);
+    if (!isClient()) for (const e of ents) if (!e.alive && time >= e.respawnAt) respawn(e);
+    if (isHost()) hostNet(dt);
+    else if (isClient()) clientNet(dt);
     gun.bloom = Math.max(0, gun.bloom - dt * 0.03);
     if (!player.alive) {
       const mate = spectateTarget();
       $('deathTimer').textContent = M.rounds
         ? `${mate ? `Spectating ${mate.name} · ` : ''}you'll be back next round`
-        : `Respawning in ${Math.max(0, player.respawnAt - time).toFixed(1)}s`;
+        : isClient() ? 'Respawning...' : `Respawning in ${Math.max(0, player.respawnAt - time).toFixed(1)}s`;
     }
   }
   updateFx(dt);
   if (started) { updateModeHud(); updateChargeMesh(); }
+  netHudAcc += dt;
+  if (netHudAcc > 0.5) {
+    netHudAcc = 0;
+    $('ping').textContent = net.role === 'solo' ? '' : `ROOM ${net.room} · PING ${net.ping} ms${isHost() ? ' · HOST' : ''}`;
+  }
 
   // Bots
   for (const b of bots) {
@@ -2262,6 +2716,7 @@ try { portraits = renderPortraits(); } catch (err) { console.warn('Portraits fai
 buildPicker();
 buildMapPicker();
 buildModePicker();
+updateOnlineUI();
 openMenu();
 updateHud();
 frame();

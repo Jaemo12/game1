@@ -1,6 +1,6 @@
 # Neon Arena
 
-A small neon first-person shooter that runs in the browser. Right now it's **single-player against AI bots**. Multiplayer for friends comes later.
+A small first-person shooter that runs in the browser. Play solo against AI bots, or **online with friends** in rooms you share by link.
 
 ## Run it
 
@@ -14,6 +14,23 @@ Then open http://localhost:3000. To use another port, run `node server.js 3123`.
 **Controls:** WASD move · Shift sprint · C crouch (hold) / slide (press while running) · Space jump · E plant/defuse · Left click shoot · Right click aim/scope (knife: heavy stab) · 1–6 or wheel switch weapon · Q last weapon · R reload · Tab scores · Esc menu
 
 Ctrl is deliberately not used: browsers treat Ctrl+W as "close tab" and a web page can't reliably stop that. If the tab is about to close mid-match, the game asks first. Press F11 for fullscreen.
+
+## Play online with friends
+
+1. Open the game and pick the mode, map and number of bots.
+2. Click **Create room & invite friends**, then **Copy link**, and send it to your friends (WhatsApp etc.).
+3. Friends open the link, pick a name and avatar, and press **JOIN ROOM**.
+
+How it works: whoever creates the room is the **host**. Their browser runs the match (bots, health, kills, rounds) and the server only passes messages along, which is why it fits on free hosting. **The host must keep their game tab open.** If they leave, the room closes. In team modes people are split across Blue and Red and bots fill the gaps. Friends can join mid-match (in Demolition, from the next round).
+
+### Put it online for free (Render, Frankfurt)
+
+1. Go to https://render.com and sign up with your GitHub account. The free plan doesn't need a card.
+2. Click **New +** > **Blueprint**, choose this repository, and click **Apply**. It reads `render.yaml` and creates a free web service in Frankfurt.
+3. When the first deploy finishes (a few minutes), open the `https://...onrender.com` address it shows. That's the link you and your friends use.
+4. Every `git push` to `main` redeploys automatically.
+
+Free plan note: the server **sleeps after 15 minutes with nobody on it**. The first person to open the link after that waits about 30 to 60 seconds while it wakes up. After that it's normal speed.
 
 ## Game modes
 
@@ -34,7 +51,9 @@ In team modes, bots split Red/Blue. 3 bots = 2v2, 5 = 3v3, 7 = 4v4. Mode rules (
 | `public/nav.js` | Bot pathfinding (A* on a 1 m grid) so bots walk around buildings |
 | `public/map.js` | The maps (layout, spawns, look), weapon stats, health, respawn time |
 | `public/index.html` | Menu and HUD layout/styles |
-| `server.js` | Serves the files. It also has early multiplayer code that the game doesn't use yet. |
+| `server.js` | Serves the files and relays multiplayer rooms (create/join by 4-letter code) |
+| `public/net.js` | The browser side of the multiplayer connection |
+| `render.yaml` | Free hosting setup for Render (Frankfurt) |
 
 ## Easy things to tweak
 
