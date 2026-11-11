@@ -16,7 +16,7 @@ import {
   setMaxAnisotropy, concrete, asphalt, dockFloor, brick, waves, container, crate, steelPlates, hazard,
   gunmetal, polymer, walnut, boxUV,
 } from './textures.js';
-import { MAPS, mapById, WEAPONS, MAX_HP, RESPAWN_MS } from './map.js';
+import { MAPS, mapById, WEAPONS, MAX_HP, RESPAWN_MS, ECONOMY } from './map.js';
 
 const $ = (id) => document.getElementById(id);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -30,6 +30,15 @@ function lerpAngle(a, b, t) {
 // ---------------------------------------------------------------- settings
 const settings = { name: 'Player', sens: 1, bots: 3, difficulty: 'normal', quality: 'low', volume: 0.7, avatar: 'kaze', map: 'yard' };
 try { Object.assign(settings, JSON.parse(localStorage.getItem('neon-arena') || '{}')); } catch {}
+// Rebindable keys (Settings > Keys). Values are KeyboardEvent.code names.
+const DEFAULT_BINDS = {
+  forward: 'KeyW', back: 'KeyS', left: 'KeyA', right: 'KeyD', jump: 'Space', sprint: 'ShiftLeft',
+  crouch: 'KeyC', reload: 'KeyR', use: 'KeyE', buy: 'KeyB', lastWeapon: 'KeyQ', scores: 'Tab',
+};
+settings.binds = { ...DEFAULT_BINDS, ...(settings.binds || {}) };
+settings.fov ??= 78;
+settings.xhStyle ??= 'crossdot';
+settings.xhColor ??= '#ffffff';
 // Graphics now default to Low (smoother). Reset older saves that stored High by default.
 if (settings.qualityV !== 2) { settings.quality = 'low'; settings.qualityV = 2; }
 
@@ -70,7 +79,7 @@ scene.environmentIntensity = 0.35;
 const sky = makeSky(ENV.sky);
 scene.add(sky);
 
-const BASE_FOV = 78;
+let BASE_FOV = settings.fov; // Settings > Field of view
 const camera = new THREE.PerspectiveCamera(BASE_FOV, innerWidth / innerHeight, 0.05, 400);
 camera.rotation.order = 'YXZ';
 scene.add(camera);
@@ -543,7 +552,7 @@ function respawn(e) {
     // Bots pick a weapon each life (weights in BOT_LOADOUT).
     let r = Math.random(), pick = 'rifle';
     for (const [id, w] of BOT_LOADOUT) { if (r < w) { pick = id; break; } r -= w; }
-    setEntWeapon(e, pick);
+    setEntWeapon(e, economyOn() ? bestOwned(e) : pick);
     e.group.visible = true;
     Object.assign(e.ai, { target: null, aggro: null, goal: null, react: 0, path: [], pathGoal: null, hold: null });
     e.ai.lastPos.copy(e.pos);
@@ -557,7 +566,7 @@ function resetLocalPlayer() {
   player.crouching = false;
   player.busy = false;
   gun.zoom = 0;
-  equip(W.id, true);
+  equip(owns(player, W.id) ? W.id : bestOwned(player), true);
   $('death').style.display = 'none';
   updateHud();
 }
@@ -585,8 +594,10 @@ function setupMatch() {
   player.streak = 0;
   Object.assign(match, {
     over: false, score: { blue: 0, red: 0 }, endsAt: M.timeLimit ? time + M.timeLimit : Infinity,
-    round: 0, attack: 'blue', phase: 'live', phaseEnds: 0,
+    round: 0, attack: 'blue', phase: 'live', phaseEnds: 0, buyEnds: 0,
   });
+  for (const e of ents) resetEconomy(e);
+  for (const p of pickups) p.readyAt = 0;
   $('endscreen').style.display = 'none';
   $('feed').innerHTML = '';
   setupModeVisuals();
@@ -613,7 +624,16 @@ function canSee(from, to) {
 function damage(target, attacker, amount, head, weapon) {
   if (!target.alive || match.over) return;
   if (attacker && attacker !== target && M.teams && attacker.team === target.team) return; // no friendly fire
+  if (target.armor > 0 && amount > 0) { // armor soaks up part of each hit
+    const absorb = Math.min(target.armor, amount * 0.45);
+    target.armor -= absorb;
+    amount -= absorb;
+  }
   target.hp = Math.max(0, target.hp - amount);
+  if (attacker && attacker !== target) {
+    if (target.isPlayer) showHurt(attacker.pos.x, attacker.pos.z);
+    else if (target.human) hostEv({ to: target.id, k: 'hurt', x: attacker.pos.x, z: attacker.pos.z });
+  }
   if (target.isPlayer) {
     flash($('vignette'), 0.9);
     updateHud();
@@ -636,6 +656,10 @@ function kill(victim, killer, head, weapon) {
   if (killer && killer !== victim) killer.kills++;
   if (M.teams && !M.rounds && killer && killer !== victim && killer.team !== victim.team) match.score[killer.team]++;
   victim.respawnAt = M.rounds ? Infinity : time + RESPAWN_MS / 1000; // no respawns within a Demolition round
+  if (economyOn()) {
+    victim.diedInRound = true; // loses bought weapons next round
+    if (killer && areEnemies(killer, victim)) pay(killer, ECONOMY.kill);
+  }
   if (charge.state === 'carried' && charge.carrier === victim) dropCharge();
   killFx(victim, killer, head, weapon);
   hostEv({ k: 'kill', v: victim.id, by: idOf(killer), h: head ? 1 : 0, w: weapon?.id || null });
@@ -1080,18 +1104,21 @@ muzzleLight.position.set(0.2, -0.1, -0.7);
 camera.add(muzzleLight);
 
 const gun = {
-  ammo: {}, reloading: false, reloadEnd: 0, nextFire: 0, bloom: 0, kick: 0, flashT: 0,
+  ammo: {}, reserve: {}, reloading: false, reloadEnd: 0, nextFire: 0, bloom: 0, kick: 0, flashT: 0,
   switchEnd: 0, ads: false, zoom: 0, shotHeld: false,
   swingT: 0, swingMax: 1, swingSide: 1, swingHeavy: false, heavyHeld: false, // knife
 };
 function refillAmmo() {
-  for (const w of WEAPON_LIST) gun.ammo[w.id] = w.mag;
+  for (const w of WEAPON_LIST) { gun.ammo[w.id] = w.mag; gun.reserve[w.id] = w.reserve || 0; }
   gun.reloading = false;
 }
+function refillReserve() { for (const w of WEAPON_LIST) gun.reserve[w.id] = w.reserve || 0; updateHud(); }
+const ammoMissing = () => WEAPON_LIST.some((w) => !w.melee && (gun.reserve[w.id] < (w.reserve || 0)));
 refillAmmo();
 
 function equip(id, instant = false) {
   if (!WEAPONS[id] || (W.id === id && !instant)) return;
+  if (!owns(player, id)) { if (!instant) sfx.blip(180, 0.05, 0.08); return; } // not bought this round
   if (W.id !== id) prevWeapon = W.id;
   W = WEAPONS[id];
   gun.reloading = false;
@@ -1108,12 +1135,15 @@ function equip(id, instant = false) {
 }
 
 function cycleWeapon(step) {
-  const i = WEAPON_LIST.findIndex((w) => w.id === W.id);
-  equip(WEAPON_LIST[(i + step + WEAPON_LIST.length) % WEAPON_LIST.length].id);
+  let i = WEAPON_LIST.findIndex((w) => w.id === W.id);
+  for (let n = 0; n < WEAPON_LIST.length; n++) { // skip weapons you don't have
+    i = (i + step + WEAPON_LIST.length) % WEAPON_LIST.length;
+    if (owns(player, WEAPON_LIST[i].id)) return equip(WEAPON_LIST[i].id);
+  }
 }
 
 function startReload() {
-  if (W.melee || gun.reloading || gun.ammo[W.id] === W.mag || !player.alive) return;
+  if (W.melee || gun.reloading || gun.ammo[W.id] === W.mag || !player.alive || !(gun.reserve[W.id] > 0)) return;
   gun.reloading = true;
   gun.reloadEnd = time + W.reload / 1000;
   sfx.blip(300, 0.05, 0.1);
@@ -1125,14 +1155,35 @@ function startReload() {
 const keys = {};
 let locked = false, started = false, firing = false, swayX = 0, swayY = 0;
 
+let rebinding = null; // Settings: the action waiting for its new key
+const isDown = (action) => {
+  const c = settings.binds[action];
+  return !!keys[c] || (c === 'ShiftLeft' && !!keys.ShiftRight);
+};
 addEventListener('keydown', (e) => {
-  if (e.code === 'Tab') { e.preventDefault(); if (started) $('scoreboard').style.display = 'block'; }
+  if (rebinding) { // Settings > Keys: this press becomes the new key (Esc cancels)
+    e.preventDefault();
+    if (e.code !== 'Escape') setBind(rebinding, e.code);
+    rebinding = null;
+    buildBindList();
+    return;
+  }
+  const B = settings.binds;
+  if (e.code === 'Tab') e.preventDefault();
+  if (e.code === B.scores && started) $('scoreboard').style.display = 'block';
   if (!locked) return;
   // While playing, swallow Ctrl shortcuts we can block (Ctrl+D bookmark, Ctrl+S save...).
   if (e.ctrlKey || e.code === 'Space') e.preventDefault();
   keys[e.code] = true;
-  if (e.code === 'KeyR') startReload();
-  if (e.code === 'KeyQ') equip(prevWeapon);
+  if (e.repeat) return;
+  if (buyMenuOpen && e.code.startsWith('Digit')) { // buy menu: numbers buy
+    const it = BUY_ITEMS[+e.code.slice(5) - 1];
+    if (it) buyLocal(it.id);
+    return;
+  }
+  if (e.code === B.buy) { toggleBuyMenu(); return; }
+  if (e.code === B.reload) startReload();
+  if (e.code === B.lastWeapon) equip(prevWeapon);
   const slot = WEAPON_LIST.find((w) => e.code === 'Digit' + w.slot);
   if (slot) equip(slot.id);
 });
@@ -1140,7 +1191,7 @@ addEventListener('wheel', (e) => { if (locked && player.alive) cycleWeapon(e.del
 addEventListener('contextmenu', (e) => e.preventDefault());
 addEventListener('keyup', (e) => {
   keys[e.code] = false;
-  if (e.code === 'Tab' && player.alive) $('scoreboard').style.display = 'none';
+  if (e.code === settings.binds.scores && player.alive) $('scoreboard').style.display = 'none';
 });
 addEventListener('mousemove', (e) => {
   if (!locked) return;
@@ -1371,11 +1422,11 @@ function updateHud() {
   $('hpfill').style.width = (player.hp / MAX_HP) * 100 + '%';
   $('hpfill').style.background = player.hp < 35 ? 'linear-gradient(90deg,#ff2b4f,#ff8a00)' : '';
   $('ammoN').textContent = W.melee ? '∞' : gun.reloading ? '··' : gun.ammo[W.id];
-  $('ammoM').textContent = W.melee ? '' : ` / ${W.mag}`;
+  $('ammoM').textContent = W.melee ? '' : ` / ${gun.reserve[W.id] ?? 0}`;
   $('ammoW').textContent = W.name;
   $('ammo').style.setProperty('--wc', hex(W.color));
   $('slots').innerHTML = WEAPON_LIST.map((w) =>
-    `<span class="${w.id === W.id ? 'on' : ''}" style="--wc:${hex(w.color)}"><b>${w.slot}</b>${w.short}</span>`).join('');
+    `<span class="${w.id === W.id ? 'on' : ''}${owns(player, w.id) ? '' : ' none'}" style="--wc:${hex(w.color)}"><b>${w.slot}</b>${w.short}</span>`).join('');
 }
 function flash(el, op) {
   el.style.transition = 'none'; el.style.opacity = op;
@@ -1473,8 +1524,8 @@ function updatePlayer(dt) {
   if (!player.alive) return;
   // No moving while frozen before a Demolition round, or while planting/defusing.
   const held = player.busy || match.over || (mode === 'demo' && match.phase === 'freeze');
-  const f = held ? 0 : (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0);
-  const s = held ? 0 : (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0);
+  const f = held ? 0 : (isDown('forward') ? 1 : 0) - (isDown('back') ? 1 : 0);
+  const s = held ? 0 : (isDown('right') ? 1 : 0) - (isDown('left') ? 1 : 0);
   const sin = Math.sin(player.yaw), cos = Math.cos(player.yaw);
   let wx = -sin * f + cos * s, wz = -cos * f - sin * s;
   const len = Math.hypot(wx, wz);
@@ -1483,10 +1534,10 @@ function updatePlayer(dt) {
   const v = player.vel;
   const horiz = Math.hypot(v.x, v.z);
   // C does both: slide when running fast, crouch otherwise. (Ctrl is not used: Ctrl+W closes browser tabs.)
-  const crouchKey = !!keys.KeyC;
+  const crouchKey = isDown('crouch');
   const crouchPressed = crouchKey && !stance.crouchKeyWas;
   stance.crouchKeyWas = crouchKey;
-  const sprintKey = !!(keys.ShiftLeft || keys.ShiftRight);
+  const sprintKey = isDown('sprint');
 
   // Start a slide: press C while running fast on the ground.
   if (crouchPressed && player.grounded && !stance.sliding && horiz > MOVE.slideMinSpeed && time >= stance.slideCd) {
@@ -1505,7 +1556,7 @@ function updatePlayer(dt) {
     const fr = Math.exp(-MOVE.slideFriction * dt);
     v.x = v.x * fr + wx * 3 * dt;
     v.z = v.z * fr + wz * 3 * dt;
-    if (keys.Space && player.grounded) { // slide-jump keeps the momentum
+    if (isDown('jump') && player.grounded) { // slide-jump keeps the momentum
       v.y = JUMP;
       player.grounded = false;
       endSlide();
@@ -1523,7 +1574,7 @@ function updatePlayer(dt) {
     const k = 1 - Math.exp(-(player.grounded ? 14 : 4) * dt);
     v.x += (wx * speed - v.x) * k;
     v.z += (wz * speed - v.z) * k;
-    if (keys.Space && player.grounded) { v.y = JUMP; player.grounded = false; }
+    if (isDown('jump') && player.grounded) { v.y = JUMP; player.grounded = false; }
   }
   if (stance.sliding) stance.sprinting = false;
 
@@ -1582,12 +1633,22 @@ function melee() {
 const cantShoot = () => player.busy || match.over || (mode === 'demo' && match.phase === 'freeze');
 
 function handleFire() {
-  if (gun.reloading && time >= gun.reloadEnd) { gun.reloading = false; gun.ammo[W.id] = W.mag; updateHud(); }
+  if (gun.reloading && time >= gun.reloadEnd) {
+    const take = Math.min(W.mag - gun.ammo[W.id], gun.reserve[W.id]);
+    gun.ammo[W.id] += take;
+    gun.reserve[W.id] -= take;
+    gun.reloading = false;
+    updateHud();
+  }
   if (W.melee) { melee(); return; }
   if (!firing) gun.shotHeld = false;
   if (!firing || !player.alive || gun.reloading || time < gun.nextFire || cantShoot()) return;
   if (!W.auto && gun.shotHeld) return; // shotgun & sniper: one shot per click
-  if (gun.ammo[W.id] <= 0) { startReload(); return; }
+  if (gun.ammo[W.id] <= 0) {
+    if (gun.reserve[W.id] > 0) startReload();
+    else if (!gun.shotHeld) { gun.shotHeld = true; sfx.blip(160, 0.04, 0.08); centerMsg('OUT OF AMMO · find an ammo box or switch weapon', 1200); }
+    return;
+  }
   gun.shotHeld = true;
   gun.nextFire = time + W.interval / 1000;
   gun.ammo[W.id]--;
@@ -1902,12 +1963,17 @@ const siteAt = (p) => MAP.sites.find((s) => Math.hypot(p.x - s.x, p.z - s.z) < s
 function startRound() {
   match.round++;
   const halftime = match.round === M.halftime + 1;
-  if (halftime) match.attack = otherTeam(match.attack);
+  if (halftime) { match.attack = otherTeam(match.attack); for (const e of ents) resetEconomy(e); } // fresh money after switching sides
+  for (const e of ents) {
+    if (e.diedInRound) { e.owned = new Set(['pistol', 'knife']); e.armor = 0; } // died last round: lose your gear
+    e.diedInRound = false;
+  }
   match.phase = 'freeze';
   match.phaseEnds = time + M.freeze;
   match.plan = Math.random() < 0.5 ? 'A' : 'B';
   for (const e of ents) e.alive = false;
   for (const e of ents) respawn(e);
+  for (const b of bots) if (!b.remote) botBuy(b);
   const attackers = ents.filter((e) => e.team === match.attack);
   Object.assign(charge, { state: 'carried', carrier: attackers[Math.floor(Math.random() * attackers.length)],
     site: null, timer: 0, progress: 0, actor: null });
@@ -1924,6 +1990,7 @@ function roundEnd(winner, reason) {
   match.phase = 'end';
   match.phaseEnds = time + M.roundEndTime;
   match.score[winner]++;
+  for (const e of ents) pay(e, e.team === winner ? ECONOMY.roundWin : ECONOMY.roundLoss);
   charge.actor = null;
   charge.progress = 0;
   roundEndFx(winner, reason);
@@ -1968,6 +2035,7 @@ function demoAct(e, dt) {
       c.site = siteAt(e.pos);
       c.pos.set(e.pos.x, 0, e.pos.z);
       c.timer = M.fuse;
+      if (economyOn()) pay(e, ECONOMY.plant);
       c.carrier = null;
       c.beepAt = time;
       centerMsg(`CHARGE PLANTED AT ${c.site.name}`, 2500);
@@ -2034,6 +2102,7 @@ function updateMode(dt) {
     if (time >= match.phaseEnds) {
       match.phase = 'live';
       match.phaseEnds = time + M.roundTime;
+      match.buyEnds = time + ECONOMY.buyTime;
       centerMsg('GO!', 1000);
       hostEv({ k: 'msg', text: 'GO!', ms: 1000 });
       sfx.blip(660, 0.15, 0.2);
@@ -2058,7 +2127,7 @@ function updateMode(dt) {
         else if (picker.human) hostEv({ to: picker.id, k: 'msg', text: 'YOU PICKED UP THE CHARGE', ms: 1800 });
       }
     }
-    player.busy = !!keys.KeyE && player.alive && demoAct(player, dt);
+    player.busy = isDown('use') && player.alive && demoAct(player, dt);
     for (const e of bots) if (e.human) e.busy = e.actHeld && demoAct(e, dt); // friends holding E
     if (c.actor && time - c.actedAt > 0.15) { c.actor = null; c.progress = 0; } // they stopped
     if (c.state === 'planted') {
@@ -2165,6 +2234,279 @@ function updateModeHud() {
     $('actFill').style.width = `${Math.min(100, (c.progress / (c.action === 'plant' ? M.plantTime : M.defuseTime)) * 100)}%`;
   }
 }
+
+// ---------------------------------------------------------------- pickups (Free-for-all / Team Deathmatch)
+// Medkits (+50 HP) and ammo boxes (refill spare ammo). They respawn 20 s after being taken.
+const PICKUP_RESPAWN = 20;
+function makePickupMesh(type) {
+  const g = new THREE.Group();
+  const col = type === 'hp' ? 0x4dff88 : 0xffc23d;
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.42, 0.52, 32), new THREE.MeshBasicMaterial({
+    color: new THREE.Color(col).multiplyScalar(1.4), transparent: true, opacity: 0.8, depthWrite: false }));
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.03;
+  const item = new THREE.Group();
+  if (type === 'hp') {
+    item.add(new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.32, 0.36), new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.5 })));
+    const red = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xff2a2a).multiplyScalar(1.6) });
+    for (const [w, d] of [[0.26, 0.08], [0.08, 0.26]]) {
+      for (const s of [-1, 1]) {
+        const c = new THREE.Mesh(new THREE.BoxGeometry(w, 0.02, d), red);
+        c.rotation.x = s > 0 ? 0 : Math.PI / 2;
+        c.position.set(0, s > 0 ? 0.17 : 0, s > 0 ? 0 : 0.185);
+        item.add(c);
+      }
+    }
+  } else {
+    item.add(new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.28, 0.34), new THREE.MeshStandardMaterial({ color: 0x4a5a32, roughness: 0.6 })));
+    const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.05, 0.345), new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffc23d).multiplyScalar(1.3) }));
+    item.add(stripe);
+    const brass = new THREE.MeshStandardMaterial({ color: 0xc9a14a, metalness: 1, roughness: 0.3 });
+    for (const x of [-0.12, 0, 0.12]) {
+      const b = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.14, 8), brass);
+      b.position.set(x, 0.21, 0);
+      item.add(b);
+    }
+  }
+  item.position.y = 0.45;
+  g.add(ring, item);
+  g.userData.item = item;
+  scene.add(g);
+  return g;
+}
+const pickups = (MAP.pickups || []).map((p, i) => {
+  const mesh = makePickupMesh(p.t);
+  mesh.position.set(p.x, 0, p.z);
+  return { ...p, readyAt: 0, mesh, phase: i };
+});
+const pickupsOn = () => !M.rounds;
+
+function pickupFx(text, color) {
+  centerMsg(text, 900);
+  sfx.blip(990, 0.06, 0.15);
+  setTimeout(() => sfx.blip(1320, 0.08, 0.12), 60);
+  flash($('vignette'), 0); // clear any red flash
+  $('center').style.color = color;
+  setTimeout(() => ($('center').style.color = ''), 900);
+}
+
+// Host / solo: who walks over what.
+function updatePickups() {
+  if (!pickupsOn()) return;
+  for (const p of pickups) {
+    if (time < p.readyAt) continue;
+    for (const e of ents) {
+      if (!e.alive || e.pos.y > 1.5 || Math.hypot(e.pos.x - p.x, e.pos.z - p.z) > 1.1) continue;
+      if (p.t === 'hp') {
+        if (e.hp >= MAX_HP) continue;
+        e.hp = Math.min(MAX_HP, e.hp + 50);
+        if (e === player) { updateHud(); pickupFx('+50 HEALTH', '#7cff9f'); }
+        else if (e.human) hostEv({ to: e.id, k: 'pick', t: 'hp' });
+      } else {
+        if (e === player) { if (!ammoMissing()) continue; refillReserve(); pickupFx('AMMO REFILLED', '#ffd36b'); }
+        else if (e.human) hostEv({ to: e.id, k: 'pick', t: 'ammo' });
+        else continue; // bots have unlimited ammo
+      }
+      p.readyAt = time + PICKUP_RESPAWN;
+      break;
+    }
+  }
+}
+function renderPickups(dt) {
+  const t = uTime.value;
+  for (const p of pickups) {
+    p.mesh.visible = pickupsOn() && time >= p.readyAt;
+    if (!p.mesh.visible) continue;
+    p.mesh.userData.item.rotation.y = t * 1.5 + p.phase;
+    p.mesh.userData.item.position.y = 0.45 + Math.sin(t * 2 + p.phase) * 0.06;
+  }
+}
+
+// ---------------------------------------------------------------- damage direction indicator
+const hurtMarks = []; // { x, z, t }
+function showHurt(x, z) {
+  hurtMarks.push({ x, z, t: performance.now() });
+  if (hurtMarks.length > 4) hurtMarks.shift();
+}
+function updateHurt() {
+  const box = $('dmgdir');
+  while (box.children.length < 4) box.appendChild(document.createElement('div'));
+  const now = performance.now();
+  for (let i = 0; i < 4; i++) {
+    const el = box.children[i], m = hurtMarks[i];
+    const age = m ? now - m.t : Infinity;
+    if (age > 1300 || !player.alive) { el.style.opacity = 0; continue; }
+    const dx = m.x - player.pos.x, dz = m.z - player.pos.z;
+    const fwd = -Math.sin(player.yaw) * dx - Math.cos(player.yaw) * dz;
+    const right = Math.cos(player.yaw) * dx - Math.sin(player.yaw) * dz;
+    el.style.transform = `rotate(${Math.atan2(right, fwd)}rad)`;
+    el.style.opacity = (1 - age / 1300).toFixed(2);
+  }
+}
+
+// ---------------------------------------------------------------- Demolition economy & buy menu
+const BUY_ITEMS = [
+  { id: 'pistol' }, { id: 'cannon' }, { id: 'shotgun' }, { id: 'rifle' }, { id: 'sniper' },
+  { id: 'armor', name: 'Armor', price: ECONOMY.armorPrice },
+].map((it) => ({ ...it, name: it.name || WEAPONS[it.id].name, price: it.price ?? WEAPONS[it.id].price }));
+const economyOn = () => mode === 'demo';
+const BEST_FIRST = ['rifle', 'sniper', 'shotgun', 'cannon', 'pistol'];
+
+function resetEconomy(e) {
+  e.money = ECONOMY.start;
+  e.owned = new Set(['pistol', 'knife']);
+  e.armor = 0;
+  e.diedInRound = false;
+}
+function owns(e, id) {
+  return !economyOn() || id === 'pistol' || id === 'knife' || !!e.owned?.has(id);
+}
+const bestOwned = (e) => BEST_FIRST.find((id) => owns(e, id)) || 'pistol';
+const pay = (e, amount) => { e.money = Math.min(ECONOMY.max, (e.money || 0) + amount); };
+function buyWindowOpen() {
+  return economyOn() && !match.over && (match.phase === 'freeze' || (match.phase === 'live' && time < match.buyEnds));
+}
+
+// Host / solo: apply a purchase. Returns true if it went through.
+function tryBuy(e, id) {
+  const item = BUY_ITEMS.find((it) => it.id === id);
+  if (!item || !e.alive || !buyWindowOpen()) return false;
+  if (id === 'armor' ? e.armor >= 100 : owns(e, id)) return false;
+  if ((e.money || 0) < item.price) return false;
+  e.money -= item.price;
+  if (id === 'armor') e.armor = 100;
+  else {
+    e.owned.add(id);
+    if (e === player) equip(id);
+    else if (e.human) hostEv({ to: e.id, k: 'bought', w: id });
+    else setEntWeapon(e, id);
+  }
+  return true;
+}
+
+// Bots spend their money at the start of a round.
+function botBuy(b) {
+  if (!owns(b, 'rifle') && !owns(b, 'sniper')) {
+    const m = b.money;
+    const want = m >= 5700 && Math.random() < 0.25 ? 'sniper' : m >= 2900 ? 'rifle'
+      : m >= 1200 && Math.random() < 0.6 ? 'shotgun' : m >= 700 && Math.random() < 0.6 ? 'cannon' : null;
+    if (want) tryBuy(b, want);
+  }
+  if (b.money >= ECONOMY.armorPrice + 300) tryBuy(b, 'armor');
+  setEntWeapon(b, bestOwned(b));
+}
+
+let buyMenuOpen = false;
+function toggleBuyMenu(force) {
+  buyMenuOpen = (force ?? !buyMenuOpen) && buyWindowOpen() && player.alive;
+  $('buymenu').style.display = buyMenuOpen ? 'block' : 'none';
+  if (buyMenuOpen) updateBuyMenu();
+}
+function buyLocal(id) {
+  if (isClient()) { netSend({ t: 'buy', item: id }); sfx.blip(700, 0.05, 0.1); return; }
+  if (tryBuy(player, id)) { sfx.blip(990, 0.08, 0.15); updateHud(); }
+  else sfx.blip(200, 0.08, 0.1);
+  updateBuyMenu();
+}
+let lastBuyHtml = '';
+function updateBuyMenu() {
+  const html = BUY_ITEMS.map((it, i) => {
+    const have = it.id === 'armor' ? player.armor >= 100 : owns(player, it.id);
+    const afford = (player.money || 0) >= it.price;
+    return `<button type="button" data-id="${it.id}" ${have || !afford ? 'disabled' : ''}><span class="k">${i + 1}</span>` +
+      `<span class="nm">${it.name}</span>${have ? '<span class="own">OWNED</span>' : `<span class="pr">${it.price ? '$' + it.price : 'FREE'}</span>`}</button>`;
+  }).join('');
+  if (html !== lastBuyHtml) { $('buyList').innerHTML = html; lastBuyHtml = html; }
+  $('buyMoney').textContent = `$${player.money || 0}`;
+  $('buyTimer').textContent = match.phase === 'freeze' ? 'round starting' : `${Math.max(0, Math.ceil(match.buyEnds - time))}s left`;
+}
+$('buyList').addEventListener('click', (e) => { const b = e.target.closest('button[data-id]'); if (b) buyLocal(b.dataset.id); });
+
+// Money, armor and the "press B" hint.
+let lastEcoHud = '';
+function updateEconomyHud() {
+  const eco = economyOn() && started;
+  const canBuy = eco && buyWindowOpen() && player.alive;
+  if (buyMenuOpen && !canBuy) toggleBuyMenu(false);
+  if (buyMenuOpen) updateBuyMenu();
+  const key = `${eco}|${player.money}|${canBuy}|${Math.ceil(match.buyEnds - time)}|${Math.ceil(player.armor || 0)}|${match.phase}`;
+  if (key === lastEcoHud) return;
+  lastEcoHud = key;
+  $('money').style.display = eco ? 'block' : 'none';
+  $('money').textContent = `$${player.money || 0}`;
+  $('buyhint').style.display = canBuy && !buyMenuOpen ? 'block' : 'none';
+  $('buyhint').innerHTML = `Press <span class="bkey">${keyName(settings.binds.buy)}</span> to buy · ${match.phase === 'freeze' ? 'before the round' : `${Math.max(0, Math.ceil(match.buyEnds - time))}s`}`;
+  $('armor').style.display = player.armor > 0 ? 'block' : 'none';
+  $('armorNum').textContent = Math.ceil(player.armor || 0);
+}
+
+// ---------------------------------------------------------------- settings panel: FOV, crosshair, keys
+const BIND_LABELS = {
+  forward: 'Forward', back: 'Back', left: 'Left', right: 'Right', jump: 'Jump', sprint: 'Sprint',
+  crouch: 'Crouch / slide', reload: 'Reload', use: 'Plant / defuse', buy: 'Buy menu', lastWeapon: 'Last weapon', scores: 'Scoreboard',
+};
+const XH_COLORS = ['#ffffff', '#00e5ff', '#7cff4f', '#ffe600', '#ff2bd6', '#ff3b3b'];
+function keyName(code) {
+  if (!code) return '?';
+  if (code.startsWith('Key')) return code.slice(3);
+  if (code.startsWith('Digit')) return code.slice(5);
+  return ({ ShiftLeft: 'L-Shift', ShiftRight: 'R-Shift', ControlLeft: 'L-Ctrl', AltLeft: 'L-Alt', Space: 'Space', Tab: 'Tab',
+    CapsLock: 'Caps', ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→', Backquote: '`' })[code] || code;
+}
+function applyCrosshair() {
+  for (const el of [$('crosshair'), document.getElementById('xhPrevEl')]) {
+    if (!el) continue;
+    el.dataset.style = settings.xhStyle;
+    el.style.setProperty('--xh', settings.xhColor);
+  }
+}
+function buildBindList() {
+  $('bindList').innerHTML = Object.keys(DEFAULT_BINDS).map((a) =>
+    `<button type="button" data-a="${a}" class="${rebinding === a ? 'wait' : ''}"><span>${BIND_LABELS[a]}</span>` +
+    `<b>${rebinding === a ? 'press a key…' : keyName(settings.binds[a])}</b></button>`).join('');
+}
+function setBind(action, code) {
+  const other = Object.keys(settings.binds).find((k) => k !== action && settings.binds[k] === code);
+  if (other) settings.binds[other] = settings.binds[action]; // swap instead of leaving a duplicate
+  settings.binds[action] = code;
+  saveSettings();
+}
+function buildSettings() {
+  $('fov').value = settings.fov;
+  $('fovVal').textContent = `${settings.fov}°`;
+  $('xhStyle').value = settings.xhStyle;
+  $('xhColors').innerHTML = XH_COLORS.map((c) =>
+    `<button type="button" data-c="${c}" class="${c === settings.xhColor ? 'on' : ''}" style="background:${c}" aria-label="Crosshair color ${c}"></button>`).join('');
+  if (!document.getElementById('xhPrevEl')) {
+    $('xhPreview').querySelector('.xhbox').innerHTML = '<div class="xh" id="xhPrevEl"><i></i><i></i><i></i><i></i><u></u><b></b></div>';
+  }
+  applyCrosshair();
+  buildBindList();
+}
+$('openSettings').onclick = () => { $('settings').style.display = 'flex'; buildSettings(); };
+$('closeSettings').onclick = () => { rebinding = null; $('settings').style.display = 'none'; saveSettings(); };
+$('resetSettings').onclick = () => {
+  Object.assign(settings, { fov: 78, xhStyle: 'crossdot', xhColor: '#ffffff', binds: { ...DEFAULT_BINDS } });
+  BASE_FOV = settings.fov;
+  saveSettings();
+  buildSettings();
+};
+$('fov').oninput = () => { settings.fov = +$('fov').value; BASE_FOV = settings.fov; $('fovVal').textContent = `${settings.fov}°`; };
+$('xhStyle').onchange = () => { settings.xhStyle = $('xhStyle').value; applyCrosshair(); saveSettings(); };
+$('xhColors').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-c]');
+  if (!b) return;
+  settings.xhColor = b.dataset.c;
+  buildSettings();
+  saveSettings();
+});
+$('bindList').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-a]');
+  if (!b) return;
+  rebinding = b.dataset.a;
+  buildBindList();
+});
+applyCrosshair();
 
 // ---------------------------------------------------------------- multiplayer
 // Roles (net.role): 'solo' (default), 'host' (runs the match for everyone: bots, health, kills, rounds)
@@ -2322,12 +2664,14 @@ function hostNet(dt) {
     e.id, r(e.pos.x), r(e.pos.y), r(e.pos.z), r(e.yaw), Math.ceil(e.hp), e.alive ? 1 : 0, e.team || '',
     e.kills, e.deaths, e === player ? W.id : (e.weapon?.id || 'rifle'), e.name,
     e === player ? settings.avatar : e.avatar, e.color, e === player || e.human ? 1 : 0,
+    e.money || 0, Math.ceil(e.armor || 0), e.owned ? [...e.owned].join(',') : '',
   ]);
   const c = charge;
   netSend({
     t: 'snap', E,
     m: { mode, map: MAP.id, score: match.score, round: match.round, attack: match.attack, phase: match.phase,
-      pe: r(match.phaseEnds - time), te: match.endsAt === Infinity ? -1 : r(match.endsAt - time) },
+      pe: r(match.phaseEnds - time), te: match.endsAt === Infinity ? -1 : r(match.endsAt - time),
+      be: r(match.buyEnds - time), pk: pickups.map((p) => (time >= p.readyAt ? 1 : 0)).join('') },
     c: { s: c.state, cr: idOf(c.carrier), p: [r(c.pos.x), r(c.pos.z)], site: c.site?.name || null, tm: r(c.timer),
       a: idOf(c.actor), ac: c.action, pr: r(c.progress) },
   });
@@ -2341,9 +2685,9 @@ function clientNet(dt) {
     stateAcc = 0;
     const r = (v) => Math.round(v * 100) / 100;
     netSend({ t: 'state', p: [r(player.pos.x), r(player.pos.y), r(player.pos.z)], yaw: r(player.yaw), pitch: r(player.pitch),
-      g: player.grounded ? 1 : 0, cr: player.crouching ? 1 : 0, act: keys.KeyE ? 1 : 0, w: W.id });
+      g: player.grounded ? 1 : 0, cr: player.crouching ? 1 : 0, act: isDown('use') ? 1 : 0, w: W.id });
   }
-  player.busy = !!keys.KeyE && charge.actor === player;
+  player.busy = isDown('use') && charge.actor === player;
   if (charge.state === 'planted') { charge.timer -= dt; chargeBeep(); }
   scoreAcc += dt;
   if (scoreAcc > 1) { scoreAcc = 0; renderScores(); }
@@ -2363,12 +2707,14 @@ function setupClient() {
 
 function onSnap(s) {
   const seen = new Set();
-  for (const [id, x, y, z, yaw, hp, alive, team, kills, deaths, w, name, avatar, color, human] of s.E) {
+  for (const [id, x, y, z, yaw, hp, alive, team, kills, deaths, w, name, avatar, color, human, money, armor, owned] of s.E) {
     seen.add(id);
     if (id === player.id) {
       if (hp < player.hp && player.alive) flash($('vignette'), 0.9);
       player.hp = hp; player.kills = kills; player.deaths = deaths;
       player.team = team || null; player.color = color;
+      player.money = money; player.armor = armor;
+      player.owned = new Set((owned || 'pistol,knife').split(','));
       if (!alive) player.alive = false;
       updateHud();
       continue;
@@ -2406,6 +2752,8 @@ function onSnap(s) {
   charge.actor = entById(c.a);
   charge.action = c.ac;
   charge.progress = c.pr;
+  match.buyEnds = time + (m.be ?? 0);
+  if (typeof m.pk === 'string') pickups.forEach((p, i) => { p.readyAt = m.pk[i] === '1' ? 0 : Infinity; });
 }
 
 function onEvent(ev) {
@@ -2436,6 +2784,16 @@ function onEvent(ev) {
     case 'roundEnd': roundEndFx(ev.win, ev.why); return;
     case 'boom': charge.pos.set(ev.x, 0, ev.z); explodeFx(); return;
     case 'end': endMatch({ team: ev.team || null, winner: entById(ev.win), draw: !!ev.draw }); return;
+    case 'hurt': showHurt(ev.x, ev.z); return;
+    case 'pick':
+      if (ev.t === 'ammo') { refillReserve(); pickupFx('AMMO REFILLED', '#ffd36b'); }
+      else pickupFx('+50 HEALTH', '#7cff9f');
+      return;
+    case 'bought':
+      player.owned?.add(ev.w);
+      equip(ev.w);
+      sfx.blip(990, 0.08, 0.15);
+      return;
     case 'reset':
       $('endscreen').style.display = 'none';
       $('feed').innerHTML = '';
@@ -2479,6 +2837,7 @@ function wireNet() {
   Object.assign(net.handlers, {
     'peer-join': onPeerJoin, 'peer-leave': onPeerLeave, state: onState, hit: onHitClaim,
     shot: onShot, snap: onSnap, ev: onEvent,
+    buy: (m) => { const e = entById(m.from); if (e) tryBuy(e, m.item); },
     'host-left': () => { window.showGameError?.('The host left the room. Going back to solo...'); backToSolo(); },
   });
   net.onClose = () => { window.showGameError?.('Lost connection to the room. Going back to solo...'); backToSolo(); };
@@ -2583,6 +2942,7 @@ function tick(dt) {
     handleFire();
     for (const b of bots) updateBot(b, dt);
     if (!isClient()) for (const e of ents) if (!e.alive && time >= e.respawnAt) respawn(e);
+    if (!isClient()) updatePickups();
     if (isHost()) hostNet(dt);
     else if (isClient()) clientNet(dt);
     gun.bloom = Math.max(0, gun.bloom - dt * 0.03);
@@ -2594,7 +2954,9 @@ function tick(dt) {
     }
   }
   updateFx(dt);
-  if (started) { updateModeHud(); updateChargeMesh(); }
+  if (started) { updateModeHud(); updateChargeMesh(); updateEconomyHud(); }
+  renderPickups(dt);
+  updateHurt();
   netHudAcc += dt;
   if (netHudAcc > 0.5) {
     netHudAcc = 0;

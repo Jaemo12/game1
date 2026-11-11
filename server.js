@@ -122,7 +122,8 @@ wss.on('connection', (ws) => {
 
       // Joiner -> host: movement, hits, actions
       case 'state':
-      case 'hit': {
+      case 'hit':
+      case 'buy': {
         if (!room || room.hostId === me.id) return;
         const host = room.clients.get(room.hostId);
         if (host) { msg.from = me.id; send(host.ws, msg); }

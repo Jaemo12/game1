@@ -38,6 +38,12 @@ Free plan note: the server **sleeps after 15 minutes with nobody on it**. The fi
 - **Team Deathmatch:** Blue vs Red, first team to 30 kills (6 minute cap). No friendly fire.
 - **Demolition:** round-based. Attackers carry a charge to bombsite A or B and plant it (hold E, 3.5 s). It detonates after 40 s unless a defender defuses it (hold E, 6 s). No respawns within a round, so you spectate a teammate after dying. First to 4 rounds wins, and sides swap at halftime.
 
+**Demolition economy:** everyone starts with $800 and a pistol. Kills pay $300, a round win $3000, a loss $1900, and planting $300 (max $9000). Press **B** during the freeze and the first 15 s of a round to open the buy menu, then a number to buy: Hand Cannon $700, Scatter Gun $1200, Pulse Rifle $2900, Rail Sniper $4700, Armor $1000 (soaks up part of each hit). You keep what you bought if you survive the round and lose it if you die. Money resets at halftime. Prices and rewards are in `ECONOMY` and `WEAPONS` in `public/map.js`.
+
+**Pickups (Free-for-all / Team Deathmatch):** medkits (+50 HP) and ammo boxes (refill spare ammo) on every map, respawning 20 s after being taken. Guns now have limited spare ammo (shown as "30 / 90").
+
+**Settings** (button in the menu): field of view, crosshair style and color, and key bindings for movement and actions.
+
 In team modes, bots split Red/Blue. 3 bots = 2v2, 5 = 3v3, 7 = 4v4. Mode rules (limits, timers) are in the `MODES` table in `public/game.js`, and bombsites and team spawns are in each map in `public/map.js`.
 
 ## Files

@@ -73,6 +73,10 @@ export const MAPS = [
       b: [[-12, 0, 29], [-6, 0, 29], [0, 0, 29], [6, 0, 29], [12, 0, 29]],
     },
     sites: [{ name: 'A', x: -17, z: 21, r: 3.5 }, { name: 'B', x: 17, z: 21, r: 3.5 }],
+    pickups: [
+      { t: 'hp', x: -10, z: -6 }, { t: 'hp', x: 10, z: 6 }, { t: 'hp', x: 0, z: -22 }, { t: 'hp', x: 0, z: 22 },
+      { t: 'ammo', x: -22, z: 0 }, { t: 'ammo', x: 22, z: 0 }, { t: 'ammo', x: -12, z: -22 }, { t: 'ammo', x: 12, z: 22 },
+    ],
     env: {
       sky: DUSK_SKY,
       fog: { color: [0.2, 0.16, 0.22], density: 0.012 },
@@ -131,6 +135,10 @@ export const MAPS = [
       b: [[-12, 0, 27], [-6, 0, 27], [0, 0, 27], [6, 0, 27], [12, 0, 27]],
     },
     sites: [{ name: 'A', x: -14, z: 18, r: 4 }, { name: 'B', x: 14, z: 18, r: 4 }],
+    pickups: [
+      { t: 'hp', x: 0, z: -14 }, { t: 'hp', x: 0, z: 14 }, { t: 'hp', x: -16, z: 0 }, { t: 'hp', x: 16, z: 0 },
+      { t: 'ammo', x: -10, z: -28 }, { t: 'ammo', x: 9, z: 26 }, { t: 'ammo', x: -27, z: 10 }, { t: 'ammo', x: 27, z: -10 },
+    ],
     env: {
       sky: {
         top: [0.12, 0.28, 0.65], mid: [0.35, 0.55, 0.85], hor: [0.75, 0.82, 0.9], horSun: [1.0, 0.92, 0.8],
@@ -190,6 +198,10 @@ export const MAPS = [
       b: [[-29, 0, 30], [-20, 0, 30], [-14, 0, 30], [14, 0, 30], [20, 0, 30]],
     },
     sites: [{ name: 'A', x: -9, z: 20, r: 3.5 }, { name: 'B', x: 9, z: 20, r: 3.5 }],
+    pickups: [
+      { t: 'hp', x: -11, z: 0 }, { t: 'hp', x: 11, z: 0 }, { t: 'hp', x: 0, z: -16 }, { t: 'hp', x: 0, z: 16 },
+      { t: 'ammo', x: -29, z: -20 }, { t: 'ammo', x: 29, z: 20 }, { t: 'ammo', x: -20, z: -10 }, { t: 'ammo', x: 20, z: 10 },
+    ],
     env: {
       sky: {
         top: [0.006, 0.004, 0.02], mid: [0.045, 0.018, 0.09], hor: [0.32, 0.07, 0.24], horSun: [0.32, 0.07, 0.24],
@@ -233,36 +245,44 @@ export const WEAPONS = {
   rifle: {
     id: 'rifle', slot: 1, name: 'Pulse Rifle', short: 'RIFLE', color: 0x00e5ff,
     body: 20, head: 50, interval: 100, mag: 30, reload: 1500, range: 120, auto: true, pellets: 1,
-    spread: 0.003, adsSpread: 0.4, moveSpread: 0.01, adsFov: 58, kick: 0.009,
+    spread: 0.003, adsSpread: 0.4, moveSpread: 0.01, adsFov: 58, kick: 0.009, reserve: 90, price: 2900,
   },
   shotgun: {
     id: 'shotgun', slot: 2, name: 'Scatter Gun', short: 'SHOTGUN', color: 0xff8a00,
     body: 11, head: 16, interval: 750, mag: 6, reload: 2000, range: 40, auto: false, pellets: 10,
-    spread: 0.055, adsSpread: 0.8, moveSpread: 0.008, adsFov: 68, kick: 0.045, falloff: [8, 30],
+    spread: 0.055, adsSpread: 0.8, moveSpread: 0.008, adsFov: 68, kick: 0.045, falloff: [8, 30], reserve: 24, price: 1200,
   },
   sniper: {
     id: 'sniper', slot: 3, name: 'Rail Sniper', short: 'SNIPER', color: 0xff2bd6,
     body: 85, head: 200, interval: 1100, mag: 5, reload: 2400, range: 200, auto: false, pellets: 1,
-    spread: 0.05, adsSpread: 0, moveSpread: 0.03, adsFov: 22, kick: 0.05, scope: true, speed: 0.92,
+    spread: 0.05, adsSpread: 0, moveSpread: 0.03, adsFov: 22, kick: 0.05, scope: true, speed: 0.92, reserve: 15, price: 4700,
   },
   pistol: {
     id: 'pistol', slot: 4, name: 'Volt Pistol', short: 'PISTOL', color: 0x7cff4f,
     body: 18, head: 45, interval: 160, mag: 12, reload: 1100, range: 80, auto: false, pellets: 1,
-    spread: 0.004, adsSpread: 0.5, moveSpread: 0.006, adsFov: 64, kick: 0.012, speed: 1.05,
+    spread: 0.004, adsSpread: 0.5, moveSpread: 0.006, adsFov: 64, kick: 0.012, speed: 1.05, reserve: 48, price: 0,
   },
   // Heavy pistol: one-shot headshots, but big recoil and very inaccurate while running.
   cannon: {
     id: 'cannon', slot: 5, name: 'Hand Cannon', short: 'CANNON', color: 0xffe600,
     body: 45, head: 110, interval: 450, mag: 7, reload: 1800, range: 100, auto: false, pellets: 1,
-    spread: 0.003, adsSpread: 0.5, moveSpread: 0.04, adsFov: 60, kick: 0.065,
+    spread: 0.003, adsSpread: 0.5, moveSpread: 0.04, adsFov: 60, kick: 0.065, reserve: 21, price: 700,
   },
   // Melee. Left click = quick slash (body), right click = heavy stab (heavy).
   // Hitting someone from behind multiplies damage (backstab).
   knife: {
     id: 'knife', slot: 6, name: 'Arc Blade', short: 'KNIFE', color: 0x8b5cff, melee: true,
     body: 50, heavy: 75, backstab: 2, interval: 420, heavyInterval: 950, range: 2.3, mag: 0,
-    speed: 1.15,
+    speed: 1.15, price: 0,
   },
+};
+//   reserve: spare ammo beyond the magazine (refilled by ammo boxes and each life)
+//   price: cost in Demolition's buy menu (the pistol and knife are free)
+
+// Demolition economy
+export const ECONOMY = {
+  start: 800, max: 9000, kill: 300, roundWin: 3000, roundLoss: 1900, plant: 300,
+  armorPrice: 1000, buyTime: 15, // seconds you can still buy after the round starts
 };
 
 export const MAX_HP = 100;
