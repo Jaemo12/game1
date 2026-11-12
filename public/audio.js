@@ -127,6 +127,8 @@ export function createAudio(getVolume) {
     pistol:  { crack: [3800, 0.03, 0.45], body: [1400, 0.07, 0.55], thump: [190, 70, 0.4, 0.08], tail: [900, 0.2, 0.08] },
     cannon:  { crack: [2600, 0.045, 0.7], body: [620, 0.2, 0.9], thump: [110, 32, 0.9, 0.28], tail: [500, 0.55, 0.2] },
     shotgun: { crack: [2200, 0.05, 0.6], body: [520, 0.24, 1.0], thump: [95, 30, 1.0, 0.3], tail: [450, 0.6, 0.22] },
+    smg:     { crack: [3600, 0.025, 0.4], body: [1200, 0.06, 0.5], thump: [170, 60, 0.35, 0.07], tail: [800, 0.18, 0.08] },
+    burst:   { crack: [3000, 0.03, 0.45], body: [900, 0.09, 0.6], thump: [130, 45, 0.45, 0.1], tail: [650, 0.25, 0.1] },
     sniper:  { crack: [4200, 0.05, 0.9], body: [800, 0.18, 0.8], thump: [90, 28, 1.0, 0.4], tail: [600, 0.9, 0.25] },
   };
 
@@ -153,7 +155,7 @@ export function createAudio(getVolume) {
     const click = (at, freq, gain = 0.25, decay = 0.03) => noise(out, t + at, { type: 'bandpass', freq, q: 4, gain, decay });
     if (id === 'shotgun') { click(0.32, 1800, 0.3, 0.05); click(0.36, 900, 0.25, 0.06); click(0.5, 2200, 0.3, 0.04); click(0.54, 1100, 0.25, 0.05); }
     else if (id === 'sniper') { click(0.5, 2600, 0.25); click(0.62, 1600, 0.2, 0.05); click(0.82, 1900, 0.22); click(0.9, 2800, 0.25); }
-    else if (id === 'rifle' || id === 'pistol' || id === 'cannon') {
+    else if (id === 'rifle' || id === 'pistol' || id === 'cannon' || id === 'smg' || id === 'burst') {
       if (Math.random() < 0.6) click(0.25 + Math.random() * 0.15, 5200 + Math.random() * 1500, 0.06, 0.04); // brass tink
     }
   }

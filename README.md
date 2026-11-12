@@ -11,7 +11,7 @@ npm start
 
 Then open http://localhost:3000. To use another port, run `node server.js 3123`.
 
-**Controls:** WASD move · Shift sprint · C crouch (hold) / slide (press while running) · Space jump · E plant/defuse · Left click shoot · Right click aim/scope (knife: heavy stab) · 1–6 or wheel switch weapon · Q last weapon · R reload · Tab scores · F flashbang · G smoke · V frag · X ping · T quick chat · Esc menu
+**Controls:** WASD move · Shift sprint · C crouch (hold) / slide (press while running) · Space jump · E plant/defuse · Left click shoot · Right click aim/scope (knife: heavy stab) · 1–8 or wheel switch weapon · Q last weapon · R reload · Tab scores · F flashbang · G smoke · V frag · X ping · T quick chat · Esc menu
 
 Ctrl is deliberately not used: browsers treat Ctrl+W as "close tab" and a web page can't reliably stop that. If the tab is about to close mid-match, the game asks first. Press F11 for fullscreen.
 
@@ -38,13 +38,19 @@ Free plan note: the server **sleeps after 15 minutes with nobody on it**. The fi
 - **Team Deathmatch:** Blue vs Red, first team to 30 kills (6 minute cap). No friendly fire.
 - **Demolition:** round-based. Attackers carry a charge to bombsite A or B and plant it (hold E, 3.5 s). It detonates after 40 s unless a defender defuses it (hold E, 6 s). No respawns within a round, so you spectate a teammate after dying. First to 4 rounds wins, and sides swap at halftime.
 
-**Demolition economy:** everyone starts with $800 and a pistol. Kills pay $300, a round win $3000, a loss $1900, and planting $300 (max $9000). Press **B** during the freeze and the first 15 s of a round to open the buy menu, then a number to buy: Hand Cannon $700, Scatter Gun $1200, Pulse Rifle $2900, Rail Sniper $4700, Armor $1000 (soaks up part of each hit). You keep what you bought if you survive the round and lose it if you die. Money resets at halftime. Prices and rewards are in `ECONOMY` and `WEAPONS` in `public/map.js`.
+**Demolition economy:** everyone starts with $800 and a pistol. Kills pay $300, a round win $3000, a loss $1900, and planting $300 (max $9000). Press **B** during the freeze and the first 15 s of a round to open the buy menu, then a number key (0 and - for the last two) to buy: Hand Cannon $700, Hornet SMG $1700, Scatter Gun $1200, Trident Burst $2400, Pulse Rifle $2900, Rail Sniper $4700, Armor $1000 (soaks up part of each hit). You keep what you bought if you survive the round and lose it if you die. Money resets at halftime. Prices and rewards are in `ECONOMY` and `WEAPONS` in `public/map.js`.
 
 **Pickups (Free-for-all / Team Deathmatch):** medkits (+50 HP) and ammo boxes (refill spare ammo) on every map, respawning 20 s after being taken. Guns now have limited spare ammo (shown as "30 / 90").
 
 **Grenades:** flashbang (blinds anyone who looks at it, including you), smoke (a 12 s cloud that blocks sight, bots included) and frag (up to about 115 damage, less with distance, needs a clear line). In Free-for-all and Team Deathmatch you spawn with one of each. In Demolition buy them in the menu (flash $200 x2, smoke $300, frag $400); you keep them if you survive the round. Bots buy and throw frags and flashes too.
 
-**Minimap:** top-left, north is up. It shows you, your teammates, the bombsites and the charge. Enemies appear only while you or a teammate can see them (smoke hides them). The name of the area you are in shows under it. Area names for each map are in `callouts` in `public/map.js` (maps without them show sites, mid and spawns).
+()=>`**Weapons:** Pulse Rifle (all-rounder), Scatter Gun (close range), Rail Sniper, Volt Pistol, Hand Cannon, Arc Blade (knife), **Hornet SMG** (very fast, good while moving, weak at range) and **Trident Burst** (one click fires 3 quick shots, accurate at distance).
+
+**Characters, colors and skins:** 7 avatars (Kaze, Boss Mango, Glitch, Nyx, Governor Gull, Oni, Ember). In the menu you can also pick a **color** (changes the glow and your color in free-for-all) and a **gun skin** (recolors the glowing parts and muzzle flash of your guns). Both are saved, and friends see your color.
+
+**Bot personalities:** each bot has a style. *Rushers* run at you with SMGs and shotguns, *Snipers* hold a spot and watch with the Rail Sniper, *Anchors* hold ground with rifles and burst rifles, *Flankers* roam. In team modes bots call out enemies ("Enemy spotted · A Main") in the chat log, and in Demolition attackers buy smokes and throw one onto the bombsite before planting. Tuning is in \`PERSONAS\` in \`public/game.js\`.
+
+**Minimap:**` top-left, north is up. It shows you, your teammates, the bombsites and the charge. Enemies appear only while you or a teammate can see them (smoke hides them). The name of the area you are in shows under it. Area names for each map are in `callouts` in `public/map.js` (maps without them show sites, mid and spawns).
 
 **Pings and quick chat:** press **X** to ping the spot you are looking at (a marker with your name and the distance, visible through walls for 8 s, also on the minimap). Press **T** and then a number for a preset message (Rush A, Need help, Enemy spotted and so on, with your location added). In team modes only teammates see them. Messages appear on the left under the minimap.
 
@@ -61,7 +67,7 @@ In team modes, bots split Red/Blue. 3 bots = 2v2, 5 = 3v3, 7 = 4v4. Mode rules (
 | File | What it is |
 |---|---|
 | `public/game.js` | The whole game: graphics, movement, shooting, bots, HUD, sounds |
-| `public/avatars.js` | The 4 characters (Kaze, Boss Mango, Glitch, Nyx): shapes, colors, walk animation. Add new avatars here. |
+| `public/avatars.js` | The 7 characters (Kaze, Boss Mango, Glitch, Nyx, Governor Gull, Oni, Ember): shapes, colors, walk animation. Add new avatars here. |
 | `public/textures.js` | Procedural textures made in code: asphalt, concrete, containers, crates, steel, hazard stripes, gunmetal, polymer, walnut |
 | `public/atmosphere.js` | The look: sky, rain, ripples, light motes, lamps, neon signs, hologram, wet floor, glowing trims, color grading |
 | `public/nav.js` | Bot pathfinding (A* on a 1 m grid) so bots walk around buildings |
@@ -76,7 +82,7 @@ In team modes, bots split Red/Blue. 3 bots = 2v2, 5 = 3v3, 7 = 4v4. Mode rules (
 
 - **Maps:** four maps live in `MAPS` in `public/map.js` (Dusk Yard, Harbor, Neon Alley, Neon Academy), chosen in the menu. Each has `boxes` (`x`/`z` = center, `y` = bottom, `w`/`h`/`d` = size, `t` = material: concrete, barrier, crate, container, steel, brick, `p` = paint, `c` = small neon accent), `spawns`, and an `env` block for its look (sky, fog, sun, lamps, signs, rain). To add a map, copy one entry and change it. Players jump about 1.4 m, so taller spots need a crate to climb.
 - **Glow:** the bloom settings are on the `UnrealBloomPass` line in `public/game.js` (strength, radius, threshold).
-- **Weapons:** `WEAPONS` in `public/map.js` has the Pulse Rifle, Scatter Gun, Rail Sniper, Volt Pistol, Hand Cannon and Arc Blade (knife). Each one's damage, fire rate, spread, zoom, recoil, magazine and reload time are there, with a comment explaining every field. Bot versions of the weapons are tuned in `BOT_GUNS` in `public/game.js`.
+- **Weapons:** `WEAPONS` in `public/map.js` has the Pulse Rifle, Scatter Gun, Rail Sniper, Volt Pistol, Hand Cannon, Hornet SMG, Trident Burst and Arc Blade (knife). Each one's damage, fire rate, spread, zoom, recoil, magazine and reload time are there, with a comment explaining every field. Bot versions of the weapons are tuned in `BOT_GUNS` in `public/game.js`.
 - **Bot difficulty:** the `DIFF` table near the top of `public/game.js`.
 - **Movement:** the `MOVE` table in `public/game.js` (walk/sprint/crouch speed, slide boost, length and friction), plus `JUMP` and `GRAV`.
 

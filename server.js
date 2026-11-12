@@ -92,6 +92,7 @@ wss.on('connection', (ws) => {
         if (room) return;
         me.name = clean(msg.name, 16) || 'Host';
         me.avatar = clean(msg.avatar, 16);
+        me.tint = clean(msg.tint, 8);
         const code = newCode();
         const r = { code, hostId: me.id, settings: msg.settings || {}, clients: new Map([[me.id, me]]) };
         rooms.set(code, r);
@@ -108,11 +109,12 @@ wss.on('connection', (ws) => {
         if (r.clients.size >= MAX_HUMANS) { send(ws, { t: 'error', reason: 'That room is full (8 players).' }); return; }
         me.name = clean(msg.name, 16) || 'Player';
         me.avatar = clean(msg.avatar, 16);
+        me.tint = clean(msg.tint, 8);
         r.clients.set(me.id, me);
         me.room = r;
         send(ws, { t: 'joined', room: r.code, id: me.id, hostId: r.hostId, settings: r.settings });
         const host = r.clients.get(r.hostId);
-        if (host) send(host.ws, { t: 'peer-join', id: me.id, name: me.name, avatar: me.avatar });
+        if (host) send(host.ws, { t: 'peer-join', id: me.id, name: me.name, avatar: me.avatar, tint: me.tint });
         return;
       }
 

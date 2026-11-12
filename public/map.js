@@ -452,6 +452,18 @@ export const WEAPONS = {
     body: 18, head: 45, interval: 160, mag: 12, reload: 1100, range: 80, auto: false, pellets: 1,
     spread: 0.004, adsSpread: 0.5, moveSpread: 0.006, adsFov: 64, kick: 0.012, speed: 1.05, reserve: 48, price: 0,
   },
+  // SMG: very fast, low damage per bullet, accurate on the move.
+  smg: {
+    id: 'smg', slot: 7, name: 'Hornet SMG', short: 'SMG', color: 0x4dffb8,
+    body: 14, head: 28, interval: 65, mag: 35, reload: 1400, range: 60, auto: true, pellets: 1,
+    spread: 0.006, adsSpread: 0.6, moveSpread: 0.004, adsFov: 66, kick: 0.006, falloff: [18, 50], speed: 1.06, reserve: 105, price: 1700,
+  },
+  // Burst rifle: one click fires 3 quick shots (burstGap ms apart), then a short pause (interval = whole cycle).
+  burst: {
+    id: 'burst', slot: 8, name: 'Trident Burst', short: 'BURST', color: 0xffc04d,
+    body: 24, head: 60, interval: 340, burst: 3, burstGap: 65, mag: 30, reload: 1600, range: 110, auto: false, pellets: 1,
+    spread: 0.002, adsSpread: 0.35, moveSpread: 0.012, adsFov: 56, kick: 0.016, reserve: 90, price: 2400,
+  },
   // Heavy pistol: one-shot headshots, but big recoil and very inaccurate while running.
   cannon: {
     id: 'cannon', slot: 5, name: 'Hand Cannon', short: 'CANNON', color: 0xffe600,

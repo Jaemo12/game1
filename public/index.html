@@ -239,6 +239,9 @@
     .avatars .av:focus-visible { outline: 2px solid var(--ac); outline-offset: 2px; }
     .avatars img { width: 100%; aspect-ratio: 5 / 6; object-fit: cover; display: block; }
     .avatars span { font-size: 11px; font-weight: 700; letter-spacing: .06em; white-space: nowrap; color: var(--ac); }
+    .swatches { display: flex; gap: 8px; flex-wrap: wrap; }
+    .sw { all: unset; cursor: pointer; box-sizing: border-box; width: 26px; height: 26px; border-radius: 50%; background: var(--c); border: 2px solid #ffffff33; display: grid; place-items: center; font-size: 13px; color: #000; transition: transform .12s, box-shadow .12s; }
+    .sw:hover { transform: scale(1.12); } .sw.on { border-color: #fff; box-shadow: 0 0 10px var(--c); } .sw:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
     .tag { font-size: 12px; opacity: .6; margin-top: 6px; min-height: 1.2em; font-style: italic; }
     button { cursor: pointer; border: 0; border-radius: 8px; font-weight: 800; letter-spacing: .15em; font-size: 15px; padding: 13px 16px; color: #05060d;
       background: linear-gradient(90deg, var(--cyan), var(--pink)); box-shadow: 0 0 24px #00e5ff44; }
@@ -330,6 +333,10 @@
       <label>Avatar</label>
       <div id="avatars" class="avatars"></div>
       <div id="avatarTag" class="tag"></div>
+      <label>Color</label>
+      <div id="tints" class="swatches"></div>
+      <label>Gun skin</label>
+      <div id="skins" class="swatches"></div>
       <div class="row host-only">
         <div style="flex:1">
           <label for="bots">Bots <span id="botsVal"></span></label>

@@ -9,6 +9,9 @@ export const AVATARS = [
   { id: 'mango', name: 'Boss Mango', color: 0xffb020, tag: 'Owns the arena. And your rent.' },
   { id: 'glitch', name: 'Glitch', color: 0x7cff4f, tag: 'Friendly. Mostly. ^_^' },
   { id: 'nyx', name: 'Nyx', color: 0xff2bd6, tag: 'Hacker cat. Nine respawns.' },
+  { id: 'gull', name: 'Gov. Gull', color: 0xb08cff, tag: 'Votes for himself. Twice.' },
+  { id: 'oni', name: 'Oni', color: 0xff3b5c, tag: 'Demon samurai. Polite until pushed.' },
+  { id: 'fox', name: 'Ember', color: 0x4dffd2, tag: 'Fast hands, faster tail.' },
 ];
 export const avatarById = (id) => AVATARS.find((a) => a.id === id) || AVATARS[0];
 
@@ -328,6 +331,111 @@ const BUILDERS = {
       seg.forEach((g, i) => {
         g.rotation.x = 0.18 + Math.sin(t * 3 - i * 0.6) * 0.05;
         g.rotation.z = Math.sin(t * 2.5 - i * 0.7) * (0.18 + amt * 0.1);
+      });
+    };
+    return rig;
+  },
+  // Governor Gull: a pompous seagull politician in a too-tight suit with a campaign sash.
+  gull(kit, accent) {
+    const { toon, glow } = kit;
+    const look = { pants: 0x2a2f45, shoes: 0xe0a020, sleeves: 0x2a2f45, hands: 0xf4f4f0, accent };
+    const rig = makeRig(kit, look);
+    const { torso, head } = rig;
+    part(torso, geo.sph(0.3), toon(0x2a2f45), { pos: [0, 0.3, 0], scale: [1.12, 1.05, 0.98], shadow: true });          // belly
+    part(torso, geo.box(0.16, 0.3, 0.05), toon(0xffffff), { pos: [0, 0.43, -0.25], rot: [-0.25, 0, 0] });              // shirt
+    part(torso, geo.box(0.06, 0.24, 0.02), toon(0x2a6ad8), { pos: [0, 0.38, -0.285], rot: [-0.25, 0, 0] });            // tie
+    part(torso, geo.box(0.7, 0.09, 0.02), toon(0xd8263a), { pos: [0, 0.32, -0.3], rot: [0, 0, 0.7], outline: false }); // campaign sash
+    part(torso, geo.cyl(0.05, 0.05, 0.015), glow(accent, 2.2), { pos: [0.12, 0.5, -0.29], rot: [Math.PI / 2, 0, 0], outline: false }); // badge
+
+    part(head, geo.sph(0.22), toon(0xf6f6f2), { pos: [0, 0.04, 0], scale: [1, 0.95, 1], shadow: true });
+    part(head, geo.sph(0.225, 18, 10, 0, Math.PI * 2, 0, Math.PI * 0.4), toon(0x9aa4b4), { pos: [0, 0.06, 0.01] });    // grey cap feathers
+    aim(part(head, geo.cone(0.07, 0.26), toon(0xf2b01c), { pos: [0, -0.03, -0.33] }), [0, -0.12, -1]);                // beak
+    part(head, geo.sph(0.018), glow(0xff3b3b, 2), { pos: [0, -0.075, -0.4], outline: false });
+    for (const s of [-1, 1]) {
+      part(head, geo.sph(0.04), toon(0xffffff), { pos: [s * 0.085, 0.07, -0.19], outline: false });
+      part(head, geo.sph(0.02), toon(0x111111), { pos: [s * 0.085, 0.065, -0.225], outline: false });
+      part(head, geo.box(0.085, 0.02, 0.02), toon(0x555d6e), { pos: [s * 0.085, 0.13, -0.2], rot: [0, 0, s * 0.35], outline: false }); // stern brows
+    }
+    const crest = [0, 1, 2].map((i) => aim(part(head, geo.cone(0.03, 0.16), toon(0x9aa4b4), { pos: [(i - 1) * 0.06, 0.27, 0.0] }), [(i - 1) * 0.5, 1, 0.3]));
+
+    rig.extra = (t, amt) => {
+      crest.forEach((c, i) => { c.rotation.z = Math.sin(t * 5 + i) * 0.15 * (0.4 + amt); });
+      head.rotation.z = Math.sin(t * 1.7) * 0.03;
+    };
+    return rig;
+  },
+
+  // Oni: a red-masked demon samurai with horns, tusks and wild white hair.
+  oni(kit, accent) {
+    const { toon, glow } = kit;
+    const look = { pants: 0x1a1a22, shoes: 0x111116, sleeves: 0x23222d, hands: 0xd8b8a8, accent, shoeGlow: accent };
+    const rig = makeRig(kit, look);
+    const { torso, head } = rig;
+    part(torso, geo.cap(0.19, 0.3), toon(0x1c1b26), { pos: [0, 0.3, 0], scale: [1.12, 1, 0.85], shadow: true });
+    part(torso, geo.box(0.2, 0.36, 0.02), toon(0xc02030), { pos: [0, 0.34, -0.165], outline: false });                // jacket front
+    part(torso, geo.box(0.012, 0.4, 0.012), glow(0xffd23c, 1.6), { pos: [0.1, 0.34, -0.17], outline: false });          // gold trim
+    part(torso, geo.box(0.012, 0.4, 0.012), glow(0xffd23c, 1.6), { pos: [-0.1, 0.34, -0.17], outline: false });
+    part(torso, geo.box(0.44, 0.07, 0.3), toon(0xc02030), { pos: [0, 0.1, 0] });                                         // belt
+    for (const s of [-1, 1]) {
+      part(torso, geo.box(0.22, 0.07, 0.24), toon(0x2a2a36), { pos: [s * 0.27, 0.56, 0], rot: [0, 0, s * -0.3] });     // shoulder plates
+      part(torso, geo.box(0.22, 0.012, 0.25), glow(accent, 1.8), { pos: [s * 0.27, 0.6, 0], rot: [0, 0, s * -0.3], outline: false });
+    }
+
+    part(head, geo.sph(0.21), toon(0xc2282f), { pos: [0, 0.04, 0], shadow: true });                                      // red face
+    for (const s of [-1, 1]) {
+      aim(part(head, geo.cone(0.05, 0.22), toon(0xf1e6c8), { pos: [s * 0.1, 0.27, -0.03] }), [s * 0.3, 1, -0.15]);     // horns
+      part(head, geo.box(0.085, 0.03, 0.01), glow(0xffe14a, 2.4), { pos: [s * 0.08, 0.06, -0.195], rot: [0, 0, s * -0.3], outline: false }); // glowing eyes
+      part(head, geo.box(0.1, 0.025, 0.02), toon(0x2a0d10), { pos: [s * 0.08, 0.12, -0.19], rot: [0, 0, s * 0.45], outline: false });        // heavy brows
+      aim(part(head, geo.cone(0.018, 0.075), toon(0xffffff), { pos: [s * 0.06, -0.09, -0.185] }), [0, 1, -0.25]);      // tusks
+    }
+    part(head, geo.box(0.16, 0.03, 0.02), toon(0x2a0d10), { pos: [0, -0.08, -0.2], outline: false });                  // mouth
+    part(head, geo.sph(0.02), glow(accent, 2.6), { pos: [0, 0.16, -0.2], outline: false });                              // forehead mark
+    const hair = toon(0xf2f2f6);
+    const tufts = [[0.5, 0.4, 1], [-0.5, 0.4, 1], [0, 0.2, 1], [0.8, 0.1, 0.7], [-0.8, 0.1, 0.7]].map((d) =>
+      aim(part(head, geo.cone(0.07, 0.34), hair, { pos: [d[0] * 0.18, 0.1 + d[1] * 0.1, 0.18] }), d));
+
+    return rig;
+  },
+
+  // Ember: a fox in a teal hoodie with ear tufts, forehead goggles and a big swishing tail.
+  fox(kit, accent) {
+    const { toon, glow } = kit;
+    const look = { pants: 0x2b2f3a, shoes: 0xf2f2f2, sleeves: 0x1f6f78, hands: 0x2b2f3a, accent, shoeGlow: accent };
+    const rig = makeRig(kit, look);
+    const { torso, head, hips } = rig;
+    part(torso, geo.cap(0.19, 0.3), toon(0x1f6f78), { pos: [0, 0.3, 0], scale: [1.12, 1, 0.85], shadow: true });
+    part(torso, geo.box(0.015, 0.4, 0.01), glow(accent, 2.2), { pos: [0, 0.3, -0.168], outline: false });
+    part(torso, geo.tor(0.13, 0.05), toon(0xf6c23a), { pos: [0, 0.6, 0], rot: [Math.PI / 2, 0, 0] });                    // scarf
+
+    part(head, geo.sph(0.21), toon(0xf08a2a), { pos: [0, 0.04, 0], shadow: true });
+    part(head, geo.sph(0.15), toon(0xfff5e6), { pos: [0, -0.04, -0.1], scale: [1, 0.7, 0.9] });                           // pale muzzle
+    part(head, geo.sph(0.026), toon(0x151515), { pos: [0, -0.01, -0.235], outline: false });                              // nose
+    for (const s of [-1, 1]) {
+      part(head, geo.sph(0.05), toon(0xffffff), { pos: [s * 0.08, 0.07, -0.17], scale: [0.85, 1.15, 0.4], outline: false });
+      part(head, geo.sph(0.034), glow(accent, 1.8), { pos: [s * 0.08, 0.065, -0.19], scale: [0.8, 1.1, 0.35], outline: false });
+      aim(part(head, geo.cone(0.09, 0.27), toon(0xf08a2a), { pos: [s * 0.13, 0.29, 0.02] }), [s * 0.25, 1, 0]);          // ears
+      aim(part(head, geo.cone(0.045, 0.16), toon(0x2a1a10), { pos: [s * 0.14, 0.31, 0.0] }), [s * 0.25, 1, 0]);
+      part(head, geo.tor(0.045, 0.012), toon(0x333844), { pos: [s * 0.07, 0.17, -0.16], rot: [0.5, 0, 0], outline: false }); // goggles on the forehead
+      part(head, new THREE.CircleGeometry(0.036, 16), glow(accent, 1.4), { pos: [s * 0.07, 0.172, -0.168], rot: [0.5 + Math.PI, 0, 0], outline: false });
+    }
+    const tail = new THREE.Group();
+    tail.position.set(0, 0.0, 0.17);
+    hips.add(tail);
+    const seg = [];
+    let parent = tail;
+    for (let i = 0; i < 5; i++) {
+      const g = new THREE.Group();
+      g.position.set(0, i === 0 ? 0 : 0.11, i === 0 ? 0 : 0.03);
+      parent.add(g);
+      part(g, geo.sph(0.07 + i * 0.012), toon(i === 4 ? 0xfff5e6 : 0xf08a2a), {});
+      seg.push(g);
+      parent = g;
+    }
+    tail.rotation.x = -0.8;
+    rig.extra = (t, amt) => {
+      seg.forEach((g, i) => {
+        g.rotation.x = 0.15 + Math.sin(t * 3 - i * 0.5) * 0.05;
+        g.rotation.z = Math.sin(t * 2.2 - i * 0.6) * (0.2 + amt * 0.1);
       });
     };
     return rig;

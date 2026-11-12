@@ -39,6 +39,8 @@ const DEFAULT_BINDS = {
 };
 settings.binds = { ...DEFAULT_BINDS, ...(settings.binds || {}) };
 settings.fov ??= 78;
+settings.tint ??= '';       // '' = the avatar's own color, else '#rrggbb'
+settings.skin ??= 'default'; // gun skin
 settings.xhStyle ??= 'crossdot';
 settings.xhColor ??= '#ffffff';
 // Graphics now default to Low (smoother). Reset older saves that stored High by default.
@@ -46,6 +48,8 @@ if (settings.qualityV !== 2) { settings.quality = 'low'; settings.qualityV = 2; 
 
 // The selected map (layout + look). Changing map reloads the page.
 const MAP = mapById(settings.map);
+function avColor() { return /^#[0-9a-f]{6}$/i.test(settings.tint) ? parseInt(settings.tint.slice(1), 16) : avatarById(settings.avatar).color; }
+const tintOf = (t) => (/^#[0-9a-f]{6}$/i.test(t || '') ? parseInt(t.slice(1), 16) : null);
 const ENV = MAP.env;
 const ARENA = { size: MAP.size, wallHeight: MAP.wallHeight };
 const BOXES = MAP.boxes;
@@ -652,7 +656,7 @@ let mode = 'ffa', M = MODES.ffa;
 const match = { over: false, score: { blue: 0, red: 0 }, endsAt: Infinity, round: 0, attack: 'blue', phase: 'live', phaseEnds: 0, plan: 'A' };
 
 const player = {
-  id: 'me', name: settings.name, color: avatarById(settings.avatar).color, isPlayer: true, team: null, busy: false,
+  id: 'me', name: settings.name, color: avColor(), isPlayer: true, team: null, busy: false,
   pos: new THREE.Vector3(), vel: new THREE.Vector3(), yaw: 0, pitch: 0,
   hp: MAX_HP, alive: true, grounded: false, kills: 0, deaths: 0, streak: 0, respawnAt: 0, killedBy: null,
 };
@@ -671,7 +675,7 @@ function makeBot(i, team) {
   const name = unique ? av.name : BOT_NAMES[i % BOT_NAMES.length];
   const model = makeCharacter(color, name, av.id);
   const b = {
-    id: 'b' + i, avatar: av.id, name, color, team, isPlayer: false, ...model,
+    id: 'b' + i, persona: PERSONA_ORDER[i % PERSONA_ORDER.length], avatar: av.id, name, color, team, isPlayer: false, ...model,
     pos: new THREE.Vector3(), vel: new THREE.Vector3(), yaw: 0,
     hp: MAX_HP, alive: true, grounded: false, kills: 0, deaths: 0, respawnAt: 0, flash: 0, busy: false,
     ai: { target: null, aggro: null, aggroT: 0, react: 0, nextShot: 0, scan: 0, goal: null,
@@ -726,7 +730,7 @@ function respawn(e) {
   } else {
     // Bots pick a weapon each life (weights in BOT_LOADOUT).
     let r = Math.random(), pick = 'rifle';
-    for (const [id, w] of BOT_LOADOUT) { if (r < w) { pick = id; break; } r -= w; }
+    for (const [id, w] of (PERSONAS[e.persona] || PERSONAS.balanced).loadout) { if (r < w) { pick = id; break; } r -= w; }
     setEntWeapon(e, economyOn() ? bestOwned(e) : pick);
     e.group.visible = true;
     Object.assign(e.ai, { target: null, aggro: null, goal: null, react: 0, path: [], pathGoal: null, hold: null });
@@ -751,7 +755,7 @@ function setupMatch() {
   M = MODES[mode];
   for (const b of bots) scene.remove(b.group);
   player.team = M.teams ? 'blue' : null;
-  player.color = M.teams ? TEAMS.blue.color : avatarById(settings.avatar).color;
+  player.color = M.teams ? TEAMS.blue.color : avColor();
   // People in the room (multiplayer) alternate red/blue; bots then fill whichever team is smaller.
   bots = [];
   let alt = 'red';
@@ -759,7 +763,7 @@ function setupMatch() {
     const team = M.teams ? alt : null;
     alt = otherTeam(alt);
     const av = avatarById(h.avatar);
-    bots.push(makeRemote({ id: h.id, name: h.name, avatar: av.id, color: team ? TEAMS[team].color : av.color, team, human: true }));
+    bots.push(makeRemote({ id: h.id, name: h.name, avatar: av.id, color: team ? TEAMS[team].color : h.tint ?? av.color, team, human: true }));
   }
   for (let i = 0; i < settings.bots; i++) bots.push(makeBot(i, M.teams ? smallerTeam([player, ...bots]) : null));
   ents = [player, ...bots];
@@ -1039,8 +1043,25 @@ function rail(g, len, x, y, z, mat = vmDark) {
 }
 
 const models = {};
+const accentMats = [];
+function accentMat(c, k = 1) { const m = glowMat(c, k); accentMats.push({ m, c, k }); return m; }
+const SKINS = [
+  { id: 'default', name: 'Default' },
+  { id: 'crimson', name: 'Crimson', c: 0xff3355, poly: 0x7a2a36 },
+  { id: 'ice', name: 'Ice', c: 0x9fe8ff, poly: 0x486a82 },
+  { id: 'gold', name: 'Gold', c: 0xffd23c, poly: 0x7a6226, wood: 0xc9a060 },
+  { id: 'toxic', name: 'Toxic', c: 0x8bff3c, poly: 0x35662a },
+  { id: 'void', name: 'Void', c: 0xa66bff, poly: 0x3f2e66 },
+];
+const skinNow = () => SKINS.find((s) => s.id === settings.skin) || SKINS[0];
+function applySkin() {
+  const s = skinNow();
+  for (const a of accentMats) a.m.color.set(s.c ?? a.c).multiplyScalar(a.k);
+  vmPoly.color.set(s.poly ?? 0xffffff);
+  vmWood.color.set(s.wood ?? 0xffffff);
+}
 { // Pulse Rifle: modern carbine (cyan accent)
-  const g = new THREE.Group(), accent = glowMat(0x00e5ff, 0.9);
+  const g = new THREE.Group(), accent = accentMat(0x00e5ff, 0.9);
   part(g, 0.07, 0.068, 0.34, 0, 0.03, -0.1);                         // upper receiver
   part(g, 0.004, 0.03, 0.07, 0.036, 0.03, -0.06, vmDark);            // ejection port cover
   part(g, 0.05, 0.014, 0.03, 0, 0.056, 0.075, vmDark);               // charging handle
@@ -1069,7 +1090,7 @@ const models = {};
   models.rifle = g;
 }
 { // Scatter Gun: pump shotgun with walnut furniture (orange accent)
-  const g = new THREE.Group(), accent = glowMat(0xff8a00, 0.9);
+  const g = new THREE.Group(), accent = accentMat(0xff8a00, 0.9);
   part(g, 0.07, 0.09, 0.3, 0, 0, -0.03);                             // receiver
   part(g, 0.004, 0.035, 0.08, 0.036, 0.01, -0.04, vmDark);           // ejection port
   tube(g, 0.02, 0.56, 0, 0.032, -0.44);                              // barrel
@@ -1096,7 +1117,7 @@ const models = {};
   models.shotgun = g;
 }
 { // Rail Sniper: bolt-action with a big scope and folded bipod (pink accent)
-  const g = new THREE.Group(), accent = glowMat(0xff2bd6, 0.9);
+  const g = new THREE.Group(), accent = accentMat(0xff2bd6, 0.9);
   part(g, 0.068, 0.07, 0.42, 0, -0.035, -0.12, vmPoly);              // chassis / forend
   part(g, 0.058, 0.1, 0.07, 0, -0.08, 0.1, vmPoly, -0.35);            // grip
   part(g, 0.058, 0.07, 0.3, 0, -0.05, 0.3, vmPoly);                   // stock
@@ -1130,7 +1151,7 @@ const models = {};
   models.sniper = g;
 }
 { // Volt Pistol: polymer striker pistol (green accent)
-  const g = new THREE.Group(), accent = glowMat(0x7cff4f, 1);
+  const g = new THREE.Group(), accent = accentMat(0x7cff4f, 1);
   part(g, 0.042, 0.042, 0.2, 0, 0.032, -0.1);                        // slide
   for (let i = 0; i < 6; i++) part(g, 0.044, 0.03, 0.004, 0, 0.032, -0.008 - i * 0.01, vmDark); // rear serrations
   part(g, 0.004, 0.016, 0.045, 0.021, 0.036, -0.08, vmDark);         // ejection port
@@ -1152,7 +1173,7 @@ const models = {};
   models.pistol = g;
 }
 { // Hand Cannon: heavy polished-steel pistol (yellow accent)
-  const g = new THREE.Group(), accent = glowMat(0xffe600, 1);
+  const g = new THREE.Group(), accent = accentMat(0xffe600, 1);
   part(g, 0.052, 0.05, 0.3, 0, 0.03, -0.13, vmSteel);                // slide
   part(g, 0.03, 0.03, 0.29, 0, 0.058, -0.13, vmSteel, 0, 0, Math.PI / 4); // angled top
   for (let i = 0; i < 7; i++) part(g, 0.054, 0.034, 0.004, 0, 0.03, -0.006 - i * 0.01, vmDark); // serrations
@@ -1204,7 +1225,55 @@ const models = {};
   g.userData.muzzle = -0.3;
   models.knife = g;
 }
+{ // Hornet SMG: compact, suppressed, with a vertical foregrip (mint accent)
+  const g = new THREE.Group(), accent = accentMat(0x4dffb8, 0.9);
+  part(g, 0.066, 0.07, 0.3, 0, 0.02, -0.06);                         // receiver
+  part(g, 0.004, 0.026, 0.06, 0.034, 0.025, -0.05, vmDark);          // ejection port
+  part(g, 0.05, 0.012, 0.03, 0, 0.06, 0.07, vmDark);                 // charging handle
+  rail(g, 0.28, 0, 0.058, -0.06);                                    // top rail
+  part(g, 0.07, 0.07, 0.2, 0, 0.02, -0.3, vmPoly);                   // shroud
+  for (let i = 0; i < 4; i++) for (const s of [-1, 1]) part(g, 0.004, 0.02, 0.025, s * 0.036, 0.022, -0.24 - i * 0.04, vmDark);
+  tube(g, 0.02, 0.2, 0, 0.02, -0.5, vmDark);                         // suppressor
+  for (const z of [-0.45, -0.5, -0.55]) tube(g, 0.0215, 0.012, 0, 0.02, z, vmMetal);
+  part(g, 0.04, 0.2, 0.052, 0, -0.14, -0.06, vmPoly);                // straight magazine
+  part(g, 0.044, 0.012, 0.058, 0, -0.245, -0.06, vmDark);            // mag base
+  part(g, 0.04, 0.11, 0.05, 0, -0.1, 0.075, vmPoly, -0.3);           // pistol grip
+  part(g, 0.01, 0.006, 0.07, 0, -0.07, 0.0, vmDark);                 // trigger guard
+  part(g, 0.036, 0.1, 0.04, 0, -0.075, -0.28, vmPoly);               // vertical foregrip
+  part(g, 0.028, 0.028, 0.16, 0, 0.02, 0.2, vmDark);                 // wire stock
+  part(g, 0.05, 0.09, 0.02, 0, 0.0, 0.295, vmDark);                  // butt pad
+  part(g, 0.044, 0.03, 0.06, 0, 0.084, -0.02, vmDark);               // sight mount
+  part(g, 0.036, 0.034, 0.05, 0, 0.115, -0.02, vmGlass);             // holo sight
+  dot(g, 0.003, 0, 0.115, -0.045, glowMat(0x4dffb8, 4));
+  part(g, 0.003, 0.006, 0.16, 0.034, -0.01, -0.28, accent);          // accent stripe
+  g.userData.muzzle = -0.64;
+  models.smg = g;
+}
+{ // Trident Burst: three-round-burst carbine with a triple-barrel muzzle (amber accent)
+  const g = new THREE.Group(), accent = accentMat(0xffc04d, 0.9);
+  part(g, 0.07, 0.078, 0.36, 0, 0.02, -0.08);                        // receiver
+  part(g, 0.004, 0.03, 0.07, 0.036, 0.03, -0.06, vmDark);            // ejection port
+  part(g, 0.05, 0.014, 0.03, 0, 0.062, 0.09, vmDark);                // charging handle
+  part(g, 0.064, 0.05, 0.2, 0, -0.03, -0.06);                        // lower receiver
+  part(g, 0.048, 0.1, 0.07, 0, -0.12, -0.1, vmPoly, 0.18);           // magazine
+  part(g, 0.05, 0.012, 0.074, 0, -0.178, -0.115, vmDark, 0.18);
+  part(g, 0.042, 0.12, 0.055, 0, -0.1, 0.05, vmPoly, -0.35);         // grip
+  part(g, 0.01, 0.006, 0.075, 0, -0.085, -0.01, vmDark);             // trigger guard
+  part(g, 0.072, 0.07, 0.26, 0, 0.02, -0.4, vmPoly);                 // handguard
+  for (let i = 0; i < 3; i++) for (const s of [-1, 1]) part(g, 0.004, 0.014, 0.035, s * 0.037, 0.02, -0.32 - i * 0.07, vmDark);
+  for (const [x, y] of [[0, 0.036], [-0.02, 0.006], [0.02, 0.006]]) tube(g, 0.0085, 0.2, x, y, -0.62, vmDark); // three barrels
+  part(g, 0.06, 0.05, 0.024, 0, 0.02, -0.7, vmDark);                 // muzzle clamp
+  part(g, 0.06, 0.05, 0.024, 0, 0.02, -0.56, vmDark);
+  part(g, 0.008, 0.035, 0.008, 0, 0.075, -0.68, vmDark);             // front post
+  part(g, 0.04, 0.022, 0.03, 0, 0.082, 0.04, vmDark);                // rear sight
+  part(g, 0.05, 0.09, 0.16, 0, -0.02, 0.24, vmPoly);                 // stock
+  part(g, 0.055, 0.1, 0.02, 0, -0.025, 0.325, vmDark);               // butt pad
+  part(g, 0.003, 0.006, 0.2, 0.037, 0.0, -0.4, accent);              // accent stripe
+  g.userData.muzzle = -0.76;
+  models.burst = g;
+}
 for (const g of Object.values(models)) { g.visible = false; vm.add(g); }
+applySkin();
 
 const flashTex = (() => {
   const c = document.createElement('canvas'); c.width = c.height = 64;
@@ -1248,13 +1317,15 @@ function equip(id, instant = false) {
   if (W.id !== id) prevWeapon = W.id;
   W = WEAPONS[id];
   gun.reloading = false;
+  gun.burstLeft = 0;
   gun.switchEnd = instant ? 0 : time + 0.35;
   gun.nextFire = gun.switchEnd; // each weapon only waits for the switch animation
   for (const [k, g] of Object.entries(models)) g.visible = k === id;
   muzzleFlash.position.z = models[id].userData.muzzle;
   muzzleFlash.position.y = models[id].position.y + 0.02;
-  for (const m of muzzleFlash.children) m.material.color.set(W.color).multiplyScalar(2.5);
-  muzzleLight.color.set(W.color);
+  const flashColor = skinNow().c ?? W.color;
+  for (const m of muzzleFlash.children) m.material.color.set(flashColor).multiplyScalar(2.5);
+  muzzleLight.color.set(flashColor);
   $('crosshair').dataset.w = id;
   updateHud();
   if (!instant) sfx.equip();
@@ -1309,8 +1380,8 @@ addEventListener('keydown', (e) => {
   }
   if (e.code === B.chat) { toggleChat(); return; }
   if (e.code === B.ping) { pingLook(); return; }
-  if (buyMenuOpen && e.code.startsWith('Digit')) { // buy menu: numbers buy
-    const it = BUY_ITEMS[+e.code.slice(5) - 1];
+  if (buyMenuOpen && BUY_KEYS.includes(e.code)) { // buy menu: number keys buy
+    const it = BUY_ITEMS[BUY_KEYS.indexOf(e.code)];
     if (it) buyLocal(it.id);
     return;
   }
@@ -1482,14 +1553,28 @@ function buildPicker() {
     `<img src="${portraits[a.id] || ''}" alt="" /><span>${a.name}</span></button>`).join('');
   $('avatarTag').textContent = avatarById(settings.avatar).tag;
 }
+const TINTS = ['', '#ff4d6d', '#4dd2ff', '#ffd23c', '#9d7cff', '#7cff9f', '#ffffff'];
+function buildLooks() {
+  $('tints').innerHTML = TINTS.map((t) => `<button type="button" class="sw ${t === settings.tint ? 'on' : ''}" data-t="${t}" title="${t ? 'Color ' + t : 'Original color'}" aria-pressed="${t === settings.tint}" style="--c:${t || hex(avatarById(settings.avatar).color)}">${t ? '' : '↺'}</button>`).join('');
+  $('skins').innerHTML = SKINS.map((s) => `<button type="button" class="sw ${s.id === settings.skin ? 'on' : ''}" data-s="${s.id}" title="${s.name}" aria-pressed="${s.id === settings.skin}" style="--c:${s.c ? hex(s.c) : '#8a93a8'}">${s.c ? '' : '↺'}</button>`).join('');
+}
+$('tints').addEventListener('click', (e) => {
+  const b = e.target.closest('.sw'); if (!b) return;
+  settings.tint = b.dataset.t; player.color = avColor(); saveSettings(); if (started) avatarDirty = true; buildLooks();
+});
+$('skins').addEventListener('click', (e) => {
+  const b = e.target.closest('.sw'); if (!b) return;
+  settings.skin = b.dataset.s; applySkin(); equip(W.id, true); saveSettings(); buildLooks();
+});
 $('avatars').addEventListener('click', (e) => {
   const btn = e.target.closest('.av');
   if (!btn || btn.dataset.id === settings.avatar) return;
   settings.avatar = btn.dataset.id;
-  player.color = avatarById(settings.avatar).color;
+  player.color = avColor();
   saveSettings();
   if (started) avatarDirty = true; // bots get re-picked on resume
   buildPicker();
+  buildLooks();
 });
 
 // ?test in the URL skips pointer lock (for automated checks) and exposes game state.
@@ -1792,15 +1877,18 @@ function handleFire() {
   }
   if (W.melee) { melee(); return; }
   if (!firing) gun.shotHeld = false;
-  if (!firing || !player.alive || gun.reloading || time < gun.nextFire || cantShoot()) return;
-  if (!W.auto && gun.shotHeld) return; // shotgun & sniper: one shot per click
+  const bursting = gun.burstLeft > 0 && !gun.reloading; // the rest of a burst keeps firing after you let go
+  if (!(firing || bursting) || !player.alive || gun.reloading || time < gun.nextFire || cantShoot()) return;
+  if (!W.auto && gun.shotHeld && !bursting) return; // shotgun & sniper: one shot per click
   if (gun.ammo[W.id] <= 0) {
+    gun.burstLeft = 0;
     if (gun.reserve[W.id] > 0) startReload();
     else if (!gun.shotHeld) { gun.shotHeld = true; sfx.blip(160, 0.04, 0.08); centerMsg('OUT OF AMMO · find an ammo box or switch weapon', 1200); }
     return;
   }
   gun.shotHeld = true;
-  gun.nextFire = time + W.interval / 1000;
+  if (W.burst) gun.burstLeft = bursting ? gun.burstLeft - 1 : W.burst - 1;
+  gun.nextFire = time + ((W.burst && gun.burstLeft > 0 ? W.burstGap : W.interval) / 1000);
   gun.ammo[W.id]--;
   player.shots = (player.shots || 0) + 1;
 
@@ -1880,9 +1968,56 @@ const BOT_GUNS = {
     dmg: (d) => Math.round(d.dmg * 1.2), acc: (d, dist) => d.accuracy - dist * 0.007 },
   cannon: { range: [8, 25], maxDist: 55, interval: 2.6,
     dmg: (d) => Math.round(d.dmg * 3.5), acc: (d, dist) => d.accuracy - dist * 0.008 },
+  smg: { range: [4, 16], maxDist: 38, interval: 0.5,
+    dmg: (d) => Math.round(d.dmg * 0.7), acc: (d, dist) => d.accuracy + 0.04 - dist * 0.01 },
+  burst: { range: [10, 28], maxDist: 62, interval: 1.5,
+    dmg: (d) => Math.round(d.dmg * 2), acc: (d, dist) => d.accuracy - dist * 0.005 },
 };
 // Chance a bot spawns with each weapon.
-const BOT_LOADOUT = [['rifle', 0.4], ['shotgun', 0.2], ['sniper', 0.15], ['pistol', 0.12], ['cannon', 0.13]];
+// Bot personalities: how they fight and what they carry. Each bot gets one (see makeBot).
+const PERSONAS = {
+  balanced: { label: 'Balanced', speed: 1, range: 1, react: 1, acc: 1, fire: 1,
+    loadout: [['rifle', 0.3], ['burst', 0.15], ['smg', 0.15], ['shotgun', 0.15], ['sniper', 0.1], ['pistol', 0.07], ['cannon', 0.08]] },
+  rusher: { label: 'Rusher', speed: 1.12, range: 0.55, react: 0.85, acc: 0.95, fire: 0.9, rush: true,
+    loadout: [['smg', 0.4], ['shotgun', 0.3], ['burst', 0.1], ['cannon', 0.1], ['rifle', 0.1]] },
+  sniper: { label: 'Sniper', speed: 0.9, range: 1.7, react: 1.1, acc: 1.1, fire: 1.15, hold: true,
+    loadout: [['sniper', 0.75], ['burst', 0.15], ['rifle', 0.1]] },
+  anchor: { label: 'Anchor', speed: 0.92, range: 1, react: 0.95, acc: 1.05, fire: 1, hold: true,
+    loadout: [['rifle', 0.4], ['burst', 0.3], ['shotgun', 0.15], ['pistol', 0.15]] },
+  flanker: { label: 'Flanker', speed: 1.06, range: 0.8, react: 1, acc: 1, fire: 1,
+    loadout: [['smg', 0.25], ['rifle', 0.25], ['burst', 0.2], ['cannon', 0.15], ['shotgun', 0.15]] },
+};
+const PERSONA_ORDER = ['balanced', 'rusher', 'sniper', 'anchor', 'flanker', 'rusher', 'sniper'];
+function personaDiff(b) { // the difficulty, adjusted for this bot's personality (cached)
+  const key = settings.difficulty + b.persona;
+  if (b._pdKey !== key) {
+    const P = PERSONAS[b.persona] || PERSONAS.balanced, d = DIFF[settings.difficulty];
+    b._pd = { ...d, reaction: d.reaction * P.react, accuracy: d.accuracy * P.acc, interval: d.interval * P.fire };
+    b._pdKey = key;
+  }
+  return b._pd;
+}
+let calloutCool = 0;
+// Bots on your team tell you where they saw an enemy.
+function botCallout(b, enemy) {
+  if (!M.teams || time < calloutCool) return;
+  calloutCool = time + 3.5;
+  deliverSay(b, { kind: 'msg', text: `Enemy spotted · ${calloutAt(enemy.pos.x, enemy.pos.z)}`, p: null });
+}
+// Attacking bots lob a smoke at the target bombsite before it is planted.
+function botSmoke(b) {
+  const ai = b.ai;
+  if (mode !== 'demo' || match.phase !== 'live' || b.team !== match.attack || !(b.nades?.smoke > 0) || time < (ai.nextSmoke || 0)) return;
+  const site = MAP.sites.find((s) => s.name === match.plan);
+  if (!site) return;
+  const d = Math.hypot(site.x - b.pos.x, site.z - b.pos.z);
+  if (d < 9 || d > 24) return;
+  ai.nextSmoke = time + 25;
+  const dir = new THREE.Vector3(site.x - b.pos.x, 0, site.z - b.pos.z).normalize().multiplyScalar(Math.cos(0.61));
+  dir.y = Math.sin(0.61); // 35 degree lob
+  hostThrow(b, 'smoke', dir, null, clamp(Math.sqrt(d * 21), 8, 26));
+  deliverSay(b, { kind: 'msg', text: `Smoking ${site.name}`, p: null });
+}
 
 // Walk towards a goal along a path around obstacles. Returns the direction to move in.
 function steerTo(b, goal) {
@@ -1928,7 +2063,7 @@ function botGoal(b) {
 function updateBot(b, dt) {
   if (b.remote) { if (b.alive) interpRemote(b, dt); return; }
   if (!b.alive) return;
-  const ai = b.ai, d = DIFF[settings.difficulty], bg = BOT_GUNS[b.weapon.id];
+  const ai = b.ai, d = personaDiff(b), P = PERSONAS[b.persona] || PERSONAS.balanced, bg = BOT_GUNS[b.weapon.id];
   if (match.over || (mode === 'demo' && match.phase === 'freeze')) { // frozen before the round starts
     b.vel.x = b.vel.z = 0;
     moveBody(b, dt);
@@ -1954,6 +2089,7 @@ function updateBot(b, dt) {
       if (canSee(b, e)) { best = e; bestD = dist; }
     }
     if (best !== ai.target) {
+      if (best && !ai.target) botCallout(b, best);
       ai.target = best;
       ai.react = d.reaction * rand(0.7, 1.3);
     }
@@ -1964,6 +2100,7 @@ function updateBot(b, dt) {
   if (tgt && !tgt.alive) tgt = ai.target = null;
   b.busy = false;
   const goal = botGoal(b);
+  botSmoke(b);
   const c = charge;
   // Objective jobs that matter more than chasing a fight (Demolition).
   const urgent = !!goal && (c.carrier === b || (c.state === 'dropped' && b.team === match.attack) || (c.state === 'planted' && b.team !== match.attack));
@@ -1986,7 +2123,7 @@ function updateBot(b, dt) {
       wz = gz / gl + rx * ai.strafe * 0.35;
       speed = 5;
     } else {
-      const approach = dist > bg.range[1] ? 0.9 : dist < bg.range[0] ? -0.6 : 0;
+      const approach = dist > bg.range[1] * P.range ? 0.9 : dist < bg.range[0] * P.range ? -0.6 : 0;
       wx = -rz * ai.strafe + rx * approach;
       wz = rx * ai.strafe + rz * approach;
       speed = b.weapon.id === 'shotgun' && approach > 0 ? 5.6 : 4.6;
@@ -2001,12 +2138,23 @@ function updateBot(b, dt) {
     // No enemy in sight: walk to the objective, or roam.
     let dest = goal;
     if (!dest) {
-      if (!ai.goal || Math.hypot(ai.goal.x - b.pos.x, ai.goal.z - b.pos.z) < 1.5) ai.goal = randomPoint();
+      if (P.rush && time >= (ai.rushAt || 0)) { // rushers head straight for the nearest enemy
+        ai.rushAt = time + 3;
+        let foe = null, fd = Infinity;
+        for (const e of ents) if (e.alive && areEnemies(b, e)) { const q = Math.hypot(e.pos.x - b.pos.x, e.pos.z - b.pos.z); if (q < fd) { fd = q; foe = e; } }
+        if (foe) ai.goal = { x: foe.pos.x, z: foe.pos.z };
+      }
+      const reached = ai.goal && Math.hypot(ai.goal.x - b.pos.x, ai.goal.z - b.pos.z) < 1.5;
+      if (!ai.goal || reached) {
+        if (P.hold && reached && !ai.holdUntil) ai.holdUntil = time + rand(6, 12); // snipers and anchors stand and watch
+        if (!P.hold || !reached || time >= ai.holdUntil) { ai.goal = randomPoint(); ai.holdUntil = 0; }
+      }
       dest = ai.goal;
     }
     if (Math.hypot(dest.x - b.pos.x, dest.z - b.pos.z) > 0.6) [wx, wz] = steerTo(b, dest);
     if (wx || wz) b.yaw = lerpAngle(b.yaw, Math.atan2(-wx, -wz), 1 - Math.exp(-6 * dt));
   }
+  speed *= P.speed;
   const len = Math.hypot(wx, wz);
   if (len > 0) { wx /= len; wz /= len; }
   const k = 1 - Math.exp(-(b.grounded ? 10 : 3) * dt);
@@ -2519,12 +2667,14 @@ const NADES = {
 const NADE_IDS = ['flash', 'smoke', 'frag'];
 const emptyNades = () => ({ flash: 0, smoke: 0, frag: 0 });
 const BUY_ITEMS = [
-  { id: 'pistol' }, { id: 'cannon' }, { id: 'shotgun' }, { id: 'rifle' }, { id: 'sniper' },
+  { id: 'pistol' }, { id: 'cannon' }, { id: 'smg' }, { id: 'shotgun' }, { id: 'burst' }, { id: 'rifle' }, { id: 'sniper' },
   { id: 'armor', name: 'Armor', price: ECONOMY.armorPrice },
   ...NADE_IDS.map((id) => ({ id, nade: true, name: NADES[id].name, price: NADES[id].price })),
 ].map((it) => ({ ...it, name: it.name || WEAPONS[it.id].name, price: it.price ?? WEAPONS[it.id].price }));
 const economyOn = () => mode === 'demo';
-const BEST_FIRST = ['rifle', 'sniper', 'shotgun', 'cannon', 'pistol'];
+const BEST_FIRST = ['rifle', 'sniper', 'burst', 'smg', 'shotgun', 'cannon', 'pistol'];
+const BUY_KEYS = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9', 'Digit0', 'Minus'];
+const BUY_KEY_LABELS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-'];
 
 function resetEconomy(e) {
   e.money = ECONOMY.start;
@@ -2568,13 +2718,14 @@ function tryBuy(e, id) {
 function botBuy(b) {
   if (!owns(b, 'rifle') && !owns(b, 'sniper')) {
     const m = b.money;
-    const want = m >= 5700 && Math.random() < 0.25 ? 'sniper' : m >= 2900 ? 'rifle'
-      : m >= 1200 && Math.random() < 0.6 ? 'shotgun' : m >= 700 && Math.random() < 0.6 ? 'cannon' : null;
+    const want = m >= 5700 && Math.random() < 0.25 ? 'sniper' : m >= 2900 ? 'rifle' : m >= 2400 && Math.random() < 0.5 ? 'burst'
+      : m >= 1700 && Math.random() < 0.5 ? 'smg' : m >= 1200 && Math.random() < 0.6 ? 'shotgun' : m >= 700 && Math.random() < 0.6 ? 'cannon' : null;
     if (want) tryBuy(b, want);
   }
   if (b.money >= ECONOMY.armorPrice + 300) tryBuy(b, 'armor');
   if (b.money >= 700) tryBuy(b, 'frag');
   if (b.money >= 500) tryBuy(b, 'flash');
+  if (b.team === match.attack && b.money >= 400 && Math.random() < 0.6) tryBuy(b, 'smoke'); // attackers smoke the site
   setEntWeapon(b, bestOwned(b));
 }
 
@@ -2595,7 +2746,7 @@ function updateBuyMenu() {
   const html = BUY_ITEMS.map((it, i) => {
     const have = it.nade ? (player.nades?.[it.id] || 0) >= NADES[it.id].max : it.id === 'armor' ? player.armor >= 100 : owns(player, it.id);
     const afford = (player.money || 0) >= it.price;
-    return `<button type="button" data-id="${it.id}" ${have || !afford ? 'disabled' : ''}><span class="k">${i + 1}</span>` +
+    return `<button type="button" data-id="${it.id}" ${have || !afford ? 'disabled' : ''}><span class="k">${BUY_KEY_LABELS[i]}</span>` +
       `<span class="nm">${it.name}</span>${have ? '<span class="own">OWNED</span>' : `<span class="pr">${it.price ? '$' + it.price : 'FREE'}</span>`}</button>`;
   }).join('');
   if (html !== lastBuyHtml) { $('buyList').innerHTML = html; lastBuyHtml = html; }
@@ -2712,7 +2863,7 @@ const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', 
 // Weapon shown in a bot's / remote player's hands.
 function setEntWeapon(e, id) {
   e.weapon = WEAPONS[id] || WEAPONS.rifle;
-  e.gunMesh.scale.z = { sniper: 1.6, shotgun: 0.8, pistol: 0.45, cannon: 0.6, knife: 0.3 }[e.weapon.id] || 1;
+  e.gunMesh.scale.z = { sniper: 1.6, shotgun: 0.8, pistol: 0.45, cannon: 0.6, knife: 0.3, smg: 0.75, burst: 0.95 }[e.weapon.id] || 1;
   e.gunMesh.scale.x = e.gunStrip.scale.x = e.weapon.id === 'shotgun' ? 1.6 : 1;
   e.gunStrip.material.color.set(e.weapon.color).multiplyScalar(2.2);
 }
@@ -2787,11 +2938,11 @@ function teamCounts(list) { const n = { blue: 0, red: 0 }; for (const e of list)
 const smallerTeam = (list) => { const n = teamCounts(list); return n.blue < n.red ? 'blue' : 'red'; };
 
 function onPeerJoin(m) {
-  const h = { id: m.id, name: m.name || 'Player', avatar: AVATARS.some((a) => a.id === m.avatar) ? m.avatar : 'kaze' };
+  const h = { id: m.id, name: m.name || 'Player', avatar: AVATARS.some((a) => a.id === m.avatar) ? m.avatar : 'kaze', tint: tintOf(m.tint) };
   humans.set(h.id, h);
   const team = M.teams ? smallerTeam(ents) : null;
   const av = avatarById(h.avatar);
-  const e = makeRemote({ id: h.id, name: h.name, avatar: av.id, color: team ? TEAMS[team].color : av.color, team, human: true });
+  const e = makeRemote({ id: h.id, name: h.name, avatar: av.id, color: team ? TEAMS[team].color : h.tint ?? av.color, team, human: true });
   bots.unshift(e);
   ents = [player, ...bots];
   if (M.rounds && match.phase !== 'freeze') { e.alive = false; e.group.visible = false; } // joins at the next round
@@ -3071,7 +3222,7 @@ async function createRoom() {
   try {
     await connect();
     wireNet();
-    netSend({ t: 'create', name: settings.name, avatar: settings.avatar, settings: { map: MAP.id, mode: settings.mode } });
+    netSend({ t: 'create', name: settings.name, avatar: settings.avatar, tint: settings.tint, settings: { map: MAP.id, mode: settings.mode } });
     const r = await waitFor('created');
     Object.assign(net, { role: 'host', id: r.id, hostId: r.id, room: r.room });
     player.id = r.id;
@@ -3094,7 +3245,7 @@ async function joinRoom(code) {
   try {
     await connect();
     wireNet();
-    netSend({ t: 'join', room: code, name: settings.name, avatar: settings.avatar });
+    netSend({ t: 'join', room: code, name: settings.name, avatar: settings.avatar, tint: settings.tint });
     const r = await waitFor('joined');
     if (r.settings?.map && r.settings.map !== MAP.id) {
       // The room plays another map: load it, then join again.
@@ -3182,12 +3333,12 @@ function nadeStep(n, dt) {
 }
 
 // Host/solo: someone throws. dir = unit vector, origin optional (the local player's camera).
-function hostThrow(e, ty, dir, origin) {
+function hostThrow(e, ty, dir, origin, speed) {
   if (!e.alive || !(e.nades?.[ty] > 0)) return;
   e.nades[ty]--;
   const o = origin || new THREE.Vector3(e.pos.x, e.pos.y + 1.5, e.pos.z).addScaledVector(dir, 0.6);
-  const v = dir.clone().multiplyScalar(16);
-  v.y += 3.2; v.x += (e.vel?.x || 0) * 0.5; v.z += (e.vel?.z || 0) * 0.5;
+  const v = dir.clone().multiplyScalar(speed || 16);
+  if (speed) { /* a planned lob: no extra boost */ } else { v.y += 3.2; v.x += (e.vel?.x || 0) * 0.5; v.z += (e.vel?.z || 0) * 0.5; }
   const id = `n${++nadeSeq}${net.id || 's'}`;
   spawnNade(id, ty, o, v, e.id);
   hostEv({ k: 'tn', id, ty, p: [o.x, o.y, o.z], v: [v.x, v.y, v.z], by: e.id });
@@ -3705,6 +3856,7 @@ setupMatch();
 started = false;
 try { portraits = renderPortraits(); } catch (err) { console.warn('Portraits failed', err); }
 buildPicker();
+buildLooks();
 buildMapPicker();
 buildModePicker();
 updateOnlineUI();
