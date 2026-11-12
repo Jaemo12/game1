@@ -821,7 +821,7 @@ function damage(target, attacker, amount, head, weapon) {
   if (!target.alive || match.over) return;
   if (attacker && attacker !== target && M.teams && attacker.team === target.team) return; // no friendly fire
   if (target.armor > 0 && amount > 0) { // armor soaks up part of each hit
-    const absorb = Math.min(target.armor, amount * 0.45);
+    const absorb = Math.min(target.armor, amount * 0.45 * (1 - (weapon?.pierce || 0)));
     target.armor -= absorb;
     amount -= absorb;
   }
@@ -834,6 +834,7 @@ function damage(target, attacker, amount, head, weapon) {
   }
   if (target.isPlayer) {
     flash($('vignette'), 0.9);
+    flinch(amount);
     updateHud();
   } else if (attacker) {
     target.flash = 0.1;
@@ -959,6 +960,16 @@ function updateFx(dt) {
     f.life -= dt;
     if (f.kind === 'fade') f.obj.material.opacity = f.decal ? Math.min(1, f.life / 1.5) : Math.max(0, f.life / f.max);
     else if (f.kind === 'light') f.obj.intensity = f.peak * Math.max(0, f.life / f.max) ** 2;
+    else if (f.kind === 'shell') {
+      f.v.y -= 14 * dt;
+      f.obj.position.addScaledVector(f.v, dt);
+      f.obj.rotation.x += f.spin * dt;
+      if (f.obj.position.y < 0.03) {
+        f.obj.position.y = 0.03; f.v.multiplyScalar(0.35); f.v.y = Math.abs(f.v.y) * 0.3;
+        if (!f.tinked) { f.tinked = true; if (Math.random() < 0.5) sfx.blip(4600 + Math.random() * 900, 0.03, 0.025, 'sine'); }
+      }
+      f.obj.scale.setScalar(Math.min(1, f.life / 0.3));
+    }
     else {
       f.v.y -= 12 * dt;
       f.obj.position.addScaledVector(f.v, dt);
@@ -1112,7 +1123,7 @@ function applySkin() {
   tube(g, 0.02, 0.56, 0, 0.032, -0.44);                              // barrel
   tube(g, 0.017, 0.46, 0, -0.012, -0.39, vmDark);                    // magazine tube
   tube(g, 0.019, 0.02, 0, -0.012, -0.63, vmMetal);                   // magazine cap
-  part(g, 0.074, 0.058, 0.2, 0, -0.012, -0.36, vmWood);               // wooden pump
+  g.userData.pump = part(g, 0.074, 0.058, 0.2, 0, -0.012, -0.36, vmWood); // wooden pump
   for (let i = 0; i < 5; i++) part(g, 0.076, 0.06, 0.006, 0, -0.012, -0.29 - i * 0.035, vmDark); // grip grooves
   dot(g, 0.006, 0, 0.057, -0.71, glowMat(0xff8a00, 3));              // bead sight
   part(g, 0.05, 0.1, 0.08, 0, -0.065, 0.16, vmWood, -0.35);           // grip
@@ -1141,7 +1152,7 @@ function applySkin() {
   part(g, 0.06, 0.12, 0.025, 0, -0.06, 0.46, vmDark);                // butt pad
   tube(g, 0.026, 0.26, 0, 0.018, -0.02);                             // receiver
   const bolt = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.07, 8), vmMetal);
-  bolt.rotation.z = Math.PI / 2 - 0.4; bolt.position.set(0.04, 0.008, 0.06); g.add(bolt);
+  bolt.rotation.z = Math.PI / 2 - 0.4; bolt.position.set(0.04, 0.008, 0.06); g.add(bolt); g.userData.bolt = bolt;
   dot(g, 0.014, 0.072, -0.006, 0.06, vmMetal);                       // bolt knob
   tube(g, 0.016, 0.6, 0, 0.018, -0.45, vmMetal, 0.012);               // tapered barrel
   part(g, 0.045, 0.04, 0.08, 0, 0.018, -0.78, vmDark);               // muzzle brake
@@ -1317,8 +1328,58 @@ camera.add(muzzleLight);
 const gun = {
   ammo: {}, reserve: {}, reloading: false, reloadEnd: 0, nextFire: 0, bloom: 0, kick: 0, flashT: 0,
   switchEnd: 0, ads: false, zoom: 0, shotHeld: false,
+  sprayIdx: 0, lastShotT: -9, pendPitch: 0, pendYaw: 0, scopeLevel: 0, boltStart: -9, boltUntil: 0, pumpStart: -9, shellAt: 0, equipDur: 0.35,
   swingT: 0, swingMax: 1, swingSide: 1, swingHeavy: false, heavyHeld: false, // knife
 };
+// ---------------------------------------------------------------- weapon feel
+// Per gun: how far the gun model kicks back / up / twists (back, rise, roll), how hard the camera is punched
+// (punch, pyaw, prol), how long it takes to pull out (equip), and how much the aim wanders sideways (sway).
+const FEEL = {
+  rifle:   { back: 0.03, rise: 0.05, roll: 0.03, punch: 0.006, pyaw: 0.004, prol: 0.004, equip: 0.38, sway: 0.5, shell: 1 },
+  smg:     { back: 0.02, rise: 0.03, roll: 0.025, punch: 0.0035, pyaw: 0.003, prol: 0.003, equip: 0.3, sway: 0.6, shell: 1 },
+  burst:   { back: 0.035, rise: 0.06, roll: 0.03, punch: 0.009, pyaw: 0.004, prol: 0.004, equip: 0.38, sway: 0.4, shell: 1 },
+  pistol:  { back: 0.03, rise: 0.1, roll: 0.04, punch: 0.014, pyaw: 0.006, prol: 0.006, equip: 0.28, sway: 0.3, shell: 1 },
+  cannon:  { back: 0.09, rise: 0.22, roll: 0.08, punch: 0.035, pyaw: 0.012, prol: 0.015, equip: 0.45, sway: 0.3, shell: 1 },
+  shotgun: { back: 0.1, rise: 0.18, roll: 0.06, punch: 0.04, pyaw: 0.012, prol: 0.012, equip: 0.5, sway: 0.2, shell: 0 },
+  sniper:  { back: 0.14, rise: 0.26, roll: 0.07, punch: 0.06, pyaw: 0.014, prol: 0.02, equip: 0.65, sway: 0, shell: 0 },
+  knife:   { back: 0, rise: 0, roll: 0, punch: 0, pyaw: 0, prol: 0, equip: 0.25, sway: 0, shell: 0 },
+};
+// Springs give recoil its weight: it kicks out fast, overshoots a little and settles.
+const mkSpring = () => ({ x: 0, v: 0 });
+const vmz = mkSpring(), vmrx = mkSpring(), vmry = mkSpring(), vmrz = mkSpring();   // gun model: back, up, yaw, roll
+const cpP = mkSpring(), cpY = mkSpring(), cpR = mkSpring();                         // camera punch: pitch, yaw, roll
+const aimSway = { x: 0, y: 0 };                                                    // scope sway (also moves where shots land)
+function stepSpring(s, dt, k = 170, c = 17) {
+  const n = Math.max(1, Math.ceil(dt / 0.008)), h = dt / n;
+  for (let i = 0; i < n; i++) { s.v += (-k * s.x - c * s.v) * h; s.x += s.v * h; }
+}
+const imp = (s, disp) => { s.v += disp * 22; }; // a kick that throws the spring out by about `disp`
+const feelOf = () => FEEL[W.id] || FEEL.rifle;
+const sstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+function flinch(amount) { // getting hit knocks your view around
+  const k = Math.min(amount, 50) / 50;
+  imp(cpP, rand(0.006, 0.02) * k); imp(cpY, rand(-1, 1) * 0.02 * k); imp(cpR, rand(-1, 1) * 0.03 * k);
+}
+// Shell casings: brass for bullets, red for shotgun shells.
+const shellGeo = new THREE.CylinderGeometry(0.012, 0.012, 0.04, 6);
+const shellMats = { brass: new THREE.MeshStandardMaterial({ color: 0xc9a14a, metalness: 1, roughness: 0.3 }), red: new THREE.MeshStandardMaterial({ color: 0xa8231f, roughness: 0.5 }) };
+function ejectShell(red = false) {
+  syncCamera();
+  const o = new THREE.Vector3(0.12, -0.1, -0.4).applyMatrix4(camera.matrixWorld);
+  const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+  const m = new THREE.Mesh(shellGeo, red ? shellMats.red : shellMats.brass);
+  m.position.copy(o); m.rotation.set(rand(0, 6), rand(0, 6), rand(0, 6));
+  scene.add(m);
+  const v = right.multiplyScalar(rand(1.8, 2.8)); v.y += rand(1.2, 2.2); v.x += -Math.sin(player.yaw) * rand(-0.3, 0.5); v.z += -Math.cos(player.yaw) * rand(-0.3, 0.5);
+  fx.push({ obj: m, kind: 'shell', life: 1.6, max: 1.6, s: 1, v, spin: rand(8, 18), tinked: false });
+}
+let rmbHeld = false;
+function cycleScope() { // sniper: right click scopes in, again for more zoom, again to leave the scope
+  if (!gun.ads) gun.scopeLevel = 0;
+  gun.scopeLevel = (gun.scopeLevel + 1) % 3;
+  gun.ads = gun.scopeLevel > 0;
+  sfx.blip(gun.ads ? 900 : 600, 0.04, 0.05, 'sine');
+}
 function refillAmmo() {
   for (const w of WEAPON_LIST) { gun.ammo[w.id] = w.mag; gun.reserve[w.id] = w.reserve || 0; }
   gun.reloading = false;
@@ -1334,7 +1395,10 @@ function equip(id, instant = false) {
   W = WEAPONS[id];
   gun.reloading = false;
   gun.burstLeft = 0;
-  gun.switchEnd = instant ? 0 : time + 0.35;
+  gun.equipDur = (FEEL[id] || FEEL.rifle).equip;
+  gun.switchEnd = instant ? 0 : time + gun.equipDur;
+  gun.scopeLevel = 0; gun.ads = !W.scope && rmbHeld;
+  gun.pendPitch = gun.pendYaw = 0;
   gun.nextFire = gun.switchEnd; // each weapon only waits for the switch animation
   for (const [k, g] of Object.entries(models)) g.visible = k === id;
   muzzleFlash.position.z = models[id].userData.muzzle;
@@ -1426,13 +1490,13 @@ addEventListener('mousemove', (e) => {
 addEventListener('mousedown', (e) => {
   if (!locked) return;
   if (e.button === 0) firing = true;
-  if (e.button === 2) gun.ads = true;
+  if (e.button === 2) { rmbHeld = true; if (W.scope) cycleScope(); else gun.ads = true; }
 });
 addEventListener('mouseup', (e) => {
   if (e.button === 0) firing = false;
-  if (e.button === 2) gun.ads = false;
+  if (e.button === 2) { rmbHeld = false; if (!W.scope) gun.ads = false; }
 });
-addEventListener('blur', () => { for (const k in keys) keys[k] = false; firing = false; gun.ads = false; });
+addEventListener('blur', () => { for (const k in keys) keys[k] = false; firing = false; gun.ads = false; rmbHeld = false; });
 
 document.addEventListener('pointerlockchange', () => {
   locked = document.pointerLockElement === document.body;
@@ -1763,7 +1827,7 @@ function eyeHeight() { return EYE + (MOVE.crouchEye - EYE) * stance.crouch; }
 
 function syncCamera() {
   camera.position.set(player.pos.x, player.pos.y + eyeHeight(), player.pos.z);
-  camera.rotation.set(player.pitch, player.yaw, 0);
+  camera.rotation.set(player.pitch + cpP.x + aimSway.x, player.yaw + cpY.x + aimSway.y, cpR.x);
   camera.updateMatrixWorld();
 }
 
@@ -1821,7 +1885,7 @@ function updatePlayer(dt) {
     const blockedAbove = stance.crouch > 0.5 && !!hitBox(player.pos, H);
     const crouching = crouchKey || blockedAbove;
     stance.sprinting = sprintKey && f > 0 && !crouching && gun.zoom < 0.3 && !(firing && !W.melee);
-    let speed = MOVE.walk * (W.speed || 1) * (1 - gun.zoom * 0.35); // knife is fast, aiming is slow
+    let speed = MOVE.walk * (W.speed || 1) * (1 - gun.zoom * (W.scope ? 0.55 : 0.35)); // knife is fast, aiming is slow
     if (crouching) speed *= MOVE.crouch;
     else if (stance.sprinting) speed *= MOVE.sprint;
     const k = 1 - Math.exp(-(player.grounded ? 14 : 4) * dt);
@@ -1909,13 +1973,16 @@ function handleFire() {
   gun.nextFire = time + ((W.burst && gun.burstLeft > 0 ? W.burstGap : W.interval) / 1000);
   gun.ammo[W.id]--;
   player.shots = (player.shots || 0) + 1;
+  const F = feelOf();
+  gun.sprayIdx = time - gun.lastShotT > 0.4 ? 0 : gun.sprayIdx + 1; // how deep into a spray we are
+  gun.lastShotT = time;
 
   syncCamera();
   const moving = Math.hypot(player.vel.x, player.vel.z) > 1.5;
-  const aiming = gun.zoom > 0.7;
+  const aiming = gun.zoom > (W.scope ? 0.92 : 0.7); // a sniper is only accurate when fully scoped in
   // Crouching steadies your aim; sprinting and sliding make it worse.
   const stanceMul = stance.sliding ? 1.6 : stance.sprinting ? 1.5 : player.crouching && player.grounded ? 0.65 : 1;
-  const spread = ((aiming ? W.spread * W.adsSpread : W.spread) + (moving ? W.moveSpread : 0)) * stanceMul
+  const spread = ((aiming ? W.spread * W.adsSpread : W.spread) + (moving ? W.moveSpread : 0)) * stanceMul * (gun.sprayIdx === 0 ? 0.6 : 1) // first shot is the most accurate
     + (player.grounded ? 0 : 0.03) + (stance.sliding ? 0.015 : 0) + gun.bloom * (player.crouching ? 0.6 : 1);
   if (W.auto) gun.bloom = Math.min(gun.bloom + 0.003, 0.02);
 
@@ -1962,10 +2029,19 @@ function handleFire() {
     sfx.blip(headAny ? 1600 : 1100, 0.04, 0.12);
   }
 
-  gun.kick = W.auto ? 1 : 2;
   gun.flashT = W.auto ? 0.04 : 0.07;
-  player.pitch = clamp(player.pitch + W.kick * rand(0.8, 1.2), -1.5, 1.5);
-  player.yaw += rand(-1, 1) * W.kick * 0.3;
+  const si = gun.sprayIdx, ramp = Math.min(1, si / 5);
+  // The aim climbs (smoothly, over a few frames) and drifts sideways in a pattern you can learn.
+  gun.pendPitch += W.kick * rand(0.85, 1.15) * (1 + Math.min(si, 8) * 0.04);
+  gun.pendYaw += W.kick * (Math.sin(si * 0.9) * 0.45 * ramp + rand(-0.12, 0.12)) * F.sway * 2;
+  // The gun and the camera get kicked: this is the "weight" of each weapon.
+  imp(vmz, F.back * rand(0.85, 1.15)); imp(vmrx, F.rise * rand(0.85, 1.15));
+  imp(vmry, rand(-1, 1) * F.roll * 0.6); imp(vmrz, rand(-1, 1) * F.roll);
+  imp(cpP, F.punch); imp(cpY, rand(-1, 1) * F.pyaw); imp(cpR, rand(-1, 1) * F.prol);
+  feel.fovK = Math.max(feel.fovK, F.punch * 55);
+  if (F.shell) ejectShell();
+  if (W.scope) { gun.boltStart = time; gun.boltUntil = time + 0.7; gun.shellAt = time + 0.55; } // the scope drops while the bolt cycles
+  if (W.id === 'shotgun') { gun.pumpStart = time + 0.18; gun.shellAt = time + 0.3; }
   sfx.weapon(W);
   if (gun.ammo[W.id] === 0) startReload();
   updateHud();
@@ -3063,7 +3139,7 @@ function onSnap(s) {
   for (const [id, x, y, z, yaw, hp, alive, team, kills, deaths, w, name, avatar, color, human, money, armor, owned, nd] of s.E) {
     seen.add(id);
     if (id === player.id) {
-      if (hp < player.hp && player.alive) flash($('vignette'), 0.9);
+      if (hp < player.hp && player.alive) { flash($('vignette'), 0.9); flinch(player.hp - hp); }
       player.hp = hp; player.kills = kills; player.deaths = deaths;
       player.team = team || null; player.color = color;
       player.money = money; player.armor = armor;
@@ -3310,7 +3386,7 @@ function frame() {
   composer.render();
 }
 
-const feel = { roll: 0, dip: 0, prevVy: 0, wasGrounded: true, speedFov: 0, slideTilt: 0, shake: 0 };
+const feel = { roll: 0, dip: 0, prevVy: 0, wasGrounded: true, speedFov: 0, slideTilt: 0, shake: 0, fovK: 0, lagX: 0 };
 
 let testPause = false; // ?test only: freezes gameplay while still rendering
 let netHudAcc = 0;
@@ -3730,6 +3806,10 @@ function tick(dt) {
     if (!isClient()) updateMode(dt);
     updatePlayer(dt);
     handleFire();
+    const dr = 1 - Math.exp(-dt * 40); // the aim climb is spread over a few frames so it feels pushed, not snapped
+    const dp = gun.pendPitch * dr, dyw = gun.pendYaw * dr;
+    player.pitch = clamp(player.pitch + dp, -1.5, 1.5); player.yaw += dyw; gun.pendPitch -= dp; gun.pendYaw -= dyw;
+    if (gun.shellAt && time >= gun.shellAt) { gun.shellAt = 0; ejectShell(W.id === 'shotgun'); }
     updateUtility(dt);
     for (const b of bots) updateBot(b, dt);
     if (!isClient()) for (const e of ents) if (!e.alive && time >= e.respawnAt) respawn(e);
@@ -3768,12 +3848,17 @@ function tick(dt) {
   }
 
   // Aim-down-sights zoom (right mouse)
-  const wantZoom = running && gun.ads && player.alive && !gun.reloading && time >= gun.switchEnd && !W.melee;
-  gun.zoom += ((wantZoom ? 1 : 0) - gun.zoom) * (1 - Math.exp(-14 * dt));
+  const wantZoom = running && gun.ads && player.alive && !gun.reloading && time >= gun.switchEnd && time >= gun.boltUntil && !W.melee;
+  gun.zoom += ((wantZoom ? 1 : 0) - gun.zoom) * (1 - Math.exp(-(W.scope ? 11 : 14) * dt));
   if (gun.zoom < 0.001) gun.zoom = 0;
   const speed = Math.hypot(player.vel.x, player.vel.z);
   feel.speedFov += (clamp(speed / 7.2, 0, 1.7) * 3.2 - feel.speedFov) * (1 - Math.exp(-5 * dt));
-  const fov = BASE_FOV + (W.adsFov - BASE_FOV) * gun.zoom + feel.speedFov * (1 - gun.zoom);
+  const adsFov = W.scope && gun.scopeLevel === 2 ? (W.adsFov2 || W.adsFov) : W.adsFov;
+  feel.fovK *= Math.exp(-dt * 9);
+  const fov = BASE_FOV + (adsFov - BASE_FOV) * gun.zoom + (feel.speedFov + feel.fovK) * (1 - gun.zoom);
+  // Scope sway: a slow drift that grows when you move and shrinks when you crouch
+  const swayAmt = (W.scope ? 0.0016 : 0.0004) * gun.zoom * (1 + speed * 0.4) * (1 - stance.crouch * 0.6);
+  aimSway.x = Math.sin(uTime.value * 1.3) * swayAmt; aimSway.y = Math.cos(uTime.value * 0.9) * swayAmt * 0.8;
   if (Math.abs(camera.fov - fov) > 0.01) { camera.fov = fov; camera.updateProjectionMatrix(); }
   const scoped = !!W.scope && gun.zoom > 0.85;
   if (scoped !== scopedShown) {
@@ -3811,7 +3896,7 @@ function tick(dt) {
       feel.dip *= Math.exp(-7 * dt);
       camera.position.y += Math.sin(bob * 2) * 0.03 * bobAmt - feel.dip;
       feel.slideTilt += ((stance.sliding ? 0.09 : 0) - feel.slideTilt) * (1 - Math.exp(-10 * dt));
-      camera.rotation.z = feel.roll + feel.slideTilt + Math.sin(bob) * 0.003 * bobAmt;
+      camera.rotation.z = feel.roll + feel.slideTilt + Math.sin(bob) * 0.003 * bobAmt + cpR.x;
     }
     feel.wasGrounded = player.grounded;
     feel.prevVy = player.vel.y;
@@ -3823,19 +3908,42 @@ function tick(dt) {
   }
 
   // Viewmodel: bob, recoil, sway, reload, weapon switch, aiming
-  gun.kick = Math.max(0, gun.kick - dt * 12);
+  for (const s of [vmz, vmrx, vmry, vmrz, cpP, cpY, cpR]) stepSpring(s, dt);
   swayX *= Math.exp(-10 * dt); swayY *= Math.exp(-10 * dt);
-  let reloadAnim = 0;
-  if (gun.reloading) reloadAnim = Math.sin(clamp(1 - (gun.reloadEnd - time) / (W.reload / 1000), 0, 1) * Math.PI);
-  const switchAnim = clamp((gun.switchEnd - time) / 0.35, 0, 1);
+  // Reload: the gun drops and turns, the magazine is swapped (a wobble, then a bump), the handle is racked.
+  let rY = 0, rX = 0, rZ = 0, rP = 0, boltT = -1;
+  if (gun.reloading) {
+    const p = clamp(1 - (gun.reloadEnd - time) / (W.reload / 1000), 0, 1);
+    const a = sstep(0, 0.18, p) - sstep(0.78, 1, p);
+    const wob = Math.sin(p * (W.id === 'shotgun' ? 60 : 38)) * (W.id === 'shotgun' ? 0.02 : 0.012) * a * (p > 0.25 && p < 0.7 ? 1 : 0);
+    rY = -0.15 * a + wob + Math.exp(-(((p - 0.6) / 0.025) ** 2)) * 0.03;
+    rX = -0.75 * a; rZ = 0.45 * a;
+    rP = Math.sin(clamp((p - 0.82) / 0.12, 0, 1) * Math.PI) * 0.05;
+    if (W.scope) boltT = p / 0.35;
+  } else if (W.scope && time - gun.boltStart < 1.3) boltT = time - gun.boltStart;
+  const sw = clamp((gun.switchEnd - time) / (gun.equipDur || 0.35), 0, 1), swE = sw * sw; // pulling the weapon out
+  const breath = Math.sin(uTime.value * 1.6) * 0.002 * (1 - gun.zoom);
+  feel.lagX += (player.vel.x * Math.cos(player.yaw) - player.vel.z * Math.sin(player.yaw) - feel.lagX) * (1 - Math.exp(-6 * dt));
   vmPos.copy(VM_BASE).lerp(VM_ADS, gun.zoom);
   vm.visible = started && player.alive && !scoped;
   vm.position.set(
-    vmPos.x + Math.sin(bob) * 0.012 * bobAmt - clamp(swayX, -0.04, 0.04),
-    vmPos.y + Math.abs(Math.cos(bob)) * 0.01 * bobAmt + clamp(swayY, -0.03, 0.03) - reloadAnim * 0.12 - switchAnim * 0.25,
-    vmPos.z + gun.kick * 0.05,
+    vmPos.x + Math.sin(bob) * 0.012 * bobAmt - clamp(swayX, -0.04, 0.04) - feel.lagX * 0.0025 * (1 - gun.zoom),
+    vmPos.y + Math.abs(Math.cos(bob)) * 0.01 * bobAmt + clamp(swayY, -0.03, 0.03) + rY - swE * 0.32 - feel.dip * 1.2 + breath,
+    vmPos.z + vmz.x + rP,
   );
-  vm.rotation.set(gun.kick * 0.06 - reloadAnim * 0.7 - switchAnim * 0.8, 0, reloadAnim * 0.3);
+  vm.rotation.set(vmrx.x + rX - swE * 1.0, vmry.x + swE * 0.3, vmrz.x + rZ);
+  // Sniper bolt: lift the handle, pull it back, push it forward, lock it down.
+  const bolt = models.sniper.userData.bolt;
+  if (bolt) {
+    const lift = boltT < 0 ? 0 : sstep(0.3, 0.42, boltT) - sstep(0.88, 1, boltT);
+    const slide = boltT < 0 ? 0 : sstep(0.45, 0.6, boltT) - sstep(0.68, 0.82, boltT);
+    bolt.rotation.z = Math.PI / 2 - 0.4 - lift * 1.1;
+    bolt.position.z = 0.06 + slide * 0.08;
+    if (boltT >= 0 && W.scope) vm.rotation.z += Math.sin(clamp(boltT, 0, 1) * Math.PI) * 0.05; // the rifle rocks as you work the bolt
+  }
+  // Shotgun pump: slides back and forward after each shot
+  const pump = models.shotgun.userData.pump;
+  if (pump) { const pt = clamp((time - gun.pumpStart) / 0.4, 0, 1); pump.position.z = -0.36 + Math.sin(pt * Math.PI) * 0.12; }
   // Sprint pose: gun lowered and turned inwards. Slide: gun tilted.
   const sp = stance.sprint * (1 - gun.zoom);
   vm.position.x -= sp * 0.06;

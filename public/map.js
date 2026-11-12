@@ -633,8 +633,9 @@ export const WEAPONS = {
   },
   sniper: {
     id: 'sniper', slot: 3, name: 'Rail Sniper', short: 'SNIPER', color: 0xff2bd6,
-    body: 85, head: 200, interval: 1100, mag: 5, reload: 2400, range: 200, auto: false, pellets: 1,
-    spread: 0.05, adsSpread: 0, moveSpread: 0.03, adsFov: 22, kick: 0.05, scope: true, speed: 0.92, reserve: 15, price: 4700,
+    body: 110, head: 250, interval: 1250, mag: 5, reload: 2600, range: 220, auto: false, pellets: 1,
+    // Right click toggles the scope (click again for more zoom): adsFov = first zoom, adsFov2 = second. pierce = ignores most armor.
+    spread: 0.06, adsSpread: 0, moveSpread: 0.04, adsFov: 30, adsFov2: 11, kick: 0.07, scope: true, pierce: 0.8, speed: 0.88, reserve: 15, price: 4700,
   },
   pistol: {
     id: 'pistol', slot: 4, name: 'Volt Pistol', short: 'PISTOL', color: 0x7cff4f,

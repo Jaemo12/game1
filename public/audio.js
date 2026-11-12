@@ -125,11 +125,11 @@ export function createAudio(getVolume) {
   const GUNS = {
     rifle:   { crack: [3200, 0.035, 0.5], body: [950, 0.11, 0.7], thump: [140, 45, 0.55, 0.12], tail: [700, 0.28, 0.12] },
     pistol:  { crack: [3800, 0.03, 0.45], body: [1400, 0.07, 0.55], thump: [190, 70, 0.4, 0.08], tail: [900, 0.2, 0.08] },
-    cannon:  { crack: [2600, 0.045, 0.7], body: [620, 0.2, 0.9], thump: [110, 32, 0.9, 0.28], tail: [500, 0.55, 0.2] },
-    shotgun: { crack: [2200, 0.05, 0.6], body: [520, 0.24, 1.0], thump: [95, 30, 1.0, 0.3], tail: [450, 0.6, 0.22] },
+    cannon:  { crack: [2600, 0.045, 0.7], body: [620, 0.2, 0.9], thump: [110, 32, 0.9, 0.28], tail: [500, 0.55, 0.2], sub: [70, 26, 0.8, 0.45], wet: 0.22 },
+    shotgun: { crack: [2200, 0.05, 0.6], body: [520, 0.24, 1.0], thump: [95, 30, 1.0, 0.3], tail: [450, 0.6, 0.22], sub: [75, 26, 0.9, 0.5], wet: 0.22 },
     smg:     { crack: [3600, 0.025, 0.4], body: [1200, 0.06, 0.5], thump: [170, 60, 0.35, 0.07], tail: [800, 0.18, 0.08] },
     burst:   { crack: [3000, 0.03, 0.45], body: [900, 0.09, 0.6], thump: [130, 45, 0.45, 0.1], tail: [650, 0.25, 0.1] },
-    sniper:  { crack: [4200, 0.05, 0.9], body: [800, 0.18, 0.8], thump: [90, 28, 1.0, 0.4], tail: [600, 0.9, 0.25] },
+    sniper:  { crack: [4200, 0.06, 1.0], body: [800, 0.22, 0.9], thump: [90, 28, 1.0, 0.45], tail: [600, 1.3, 0.3], sub: [60, 20, 1.2, 0.8], wet: 0.34 },
   };
 
   function gun(id, opts = {}) {
@@ -138,7 +138,7 @@ export function createAudio(getVolume) {
     const t = ctx.currentTime;
     const vol = opts.vol ?? 1;
     if (vol < 0.02 || !allow((opts.far || 0) > 0.3 ? 8 : 16)) return;
-    const out = bus({ vol: vol * 0.85, pan: opts.pan || 0, far: opts.far || 0, wet: 0.16, ttl: 3000 });
+    const out = bus({ vol: vol * 0.85, pan: opts.pan || 0, far: opts.far || 0, wet: r.wet ?? 0.16, ttl: 3500 });
     const jitter = 0.94 + Math.random() * 0.12;
     noise(out, t, { type: 'highpass', freq: r.crack[0] * jitter, q: 0.7, gain: r.crack[2], decay: r.crack[1] });
     const body = ctx.createWaveShaper(); // the body layer gets a little distortion for grit
@@ -146,6 +146,7 @@ export function createAudio(getVolume) {
     body.connect(out);
     noise(body, t, { type: 'bandpass', freq: r.body[0] * jitter, q: 0.9, gain: r.body[2], decay: r.body[1], sweepTo: r.body[0] * 0.5 });
     thump(out, t, { from: r.thump[0] * jitter, to: r.thump[1], gain: r.thump[2], decay: r.thump[3] });
+    if (r.sub) thump(out, t, { from: r.sub[0], to: r.sub[1], gain: r.sub[2], decay: r.sub[3] }); // chest-thump
     noise(out, t + 0.01, { type: 'lowpass', freq: r.tail[0], q: 0.5, gain: r.tail[2], attack: 0.02, decay: r.tail[1] });
     if (!opts.far || opts.far < 0.6) mechanics(id, out, t);
   }
