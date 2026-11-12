@@ -7,6 +7,9 @@
 // Players can jump about 1.4 m, so anything taller needs a crate (or similar) next to it.
 
 const CYAN = 0x00e5ff, PINK = 0xff2bd6, ORANGE = 0xff8a00, VIOLET = 0x8b5cff, GREEN = 0x7cff4f;
+// Neon Academy colors
+const SCHOOL_WALL = 0xc8d0e0, DESK = 0xe8ecf4, TEACHER = 0x5a6a8a, SHELF = 0x6a4a3a, BENCH = 0x8a93a8;
+const LOCKER_A = 0x3f6fae, LOCKER_B = 0xb04a5a, LOCKER_C = 0x2f8a8a;
 const RUST = 0x9a3f2c, BLUE = 0x2f5a8c, DGREEN = 0x3f6e4c, GREY = 0x8a8f96, OCHRE = 0xc06a2b, WHITE = 0xd8d8d0;
 
 function mirror4(b) {
@@ -226,6 +229,98 @@ export const MAPS = [
       skyline: { color: 0x0e1018, windows: 0.6, beacons: true, neon: true },
     },
   },
+
+  // ---------------------------------------------------------------- Neon Academy
+  // A futuristic school: classrooms (north), library + science lab (south), and a locker-lined
+  // atrium in between with the school crest as a hologram. Room walls are 3.4 m (not climbable).
+  {
+    id: 'academy', name: 'Neon Academy', tag: 'Futuristic school at night. Classrooms, lockers and a holo-atrium.',
+    size: 64, wallHeight: 8,
+    boxes: [
+      // Classroom 3-A (north-west) and 3-B (north-east): doors in the south and inner walls
+      ...[-1, 1].flatMap((s) => [
+        { x: s * 24, z: -18, w: 4, h: 3.4, d: 0.5, t: 'panel', p: SCHOOL_WALL },
+        { x: s * 16, z: -18, w: 7, h: 3.4, d: 0.5, t: 'panel', p: SCHOOL_WALL },
+        { x: s * 8, z: -18, w: 4, h: 3.4, d: 0.5, t: 'panel', p: SCHOOL_WALL },
+        { x: s * 26, z: -25, w: 0.5, h: 3.4, d: 14, t: 'panel', p: SCHOOL_WALL },
+        { x: s * 6, z: -29, w: 0.5, h: 3.4, d: 6, t: 'panel', p: SCHOOL_WALL },
+        { x: s * 6, z: -20.75, w: 0.5, h: 3.4, d: 5.5, t: 'panel', p: SCHOOL_WALL },
+        // desks (low cover) and the teacher's desk
+        ...[-22, -18, -14, -10].flatMap((x) => [-28, -24.5].map((z) => ({ x: s * -x, z, w: 1.4, h: 0.8, d: 0.8, t: 'panel', p: DESK }))),
+        { x: s * 16, z: -30.6, w: 3, h: 0.9, d: 1, t: 'panel', p: TEACHER },
+      ]),
+      // Library (south-west) and science lab (south-east)
+      ...[-1, 1].flatMap((s) => [
+        { x: s * 24, z: 18, w: 4, h: 3.4, d: 0.5, t: 'panel', p: SCHOOL_WALL },
+        { x: s * 16, z: 18, w: 7, h: 3.4, d: 0.5, t: 'panel', p: SCHOOL_WALL },
+        { x: s * 8, z: 18, w: 4, h: 3.4, d: 0.5, t: 'panel', p: SCHOOL_WALL },
+        { x: s * 26, z: 25, w: 0.5, h: 3.4, d: 14, t: 'panel', p: SCHOOL_WALL },
+        { x: s * 6, z: 29, w: 0.5, h: 3.4, d: 6, t: 'panel', p: SCHOOL_WALL },
+        { x: s * 6, z: 20.75, w: 0.5, h: 3.4, d: 5.5, t: 'panel', p: SCHOOL_WALL },
+      ]),
+      { x: -23, z: 25, w: 0.6, h: 2.4, d: 5, t: 'locker', p: SHELF },                 // bookshelves
+      { x: -9, z: 25, w: 0.6, h: 2.4, d: 5, t: 'locker', p: SHELF },
+      { x: -16, z: 30.4, w: 3, h: 0.8, d: 1.2, t: 'panel', p: DESK },                 // reading table
+      { x: 10, z: 25, w: 1.2, h: 1, d: 4, t: 'steel', p: 0xd0d8e0 },                  // lab benches
+      { x: 22, z: 25, w: 1.2, h: 1, d: 4, t: 'steel', p: 0xd0d8e0 },
+      { x: 16, z: 30.2, w: 1.4, h: 3, d: 1.4, t: 'panel', p: 0x2a3348, c: CYAN },     // reactor core
+      // Lockers along the atrium side of every room wall (they leave the doors free)
+      ...[-1, 1].flatMap((s) => [-1, 1].flatMap((n) => [
+        { x: s * 24, z: n * 17.45, w: 3.5, h: 2.2, d: 0.6, t: 'locker', p: LOCKER_A },
+        { x: s * 16, z: n * 17.45, w: 6.5, h: 2.2, d: 0.6, t: 'locker', p: s * n > 0 ? LOCKER_B : LOCKER_C },
+        { x: s * 8, z: n * 17.45, w: 3.5, h: 2.2, d: 0.6, t: 'locker', p: LOCKER_A },
+      ])),
+      // Atrium: crest plinth under the hologram, benches, columns, cover, cafeteria, vending machines
+      { x: 0, z: 0, w: 3, h: 1, d: 3, t: 'panel', p: 0x2a3348, c: PINK },
+      { x: 0, z: -6, w: 3, h: 0.5, d: 0.8, t: 'panel', p: BENCH },
+      { x: 0, z: 6, w: 3, h: 0.5, d: 0.8, t: 'panel', p: BENCH },
+      { x: -6, z: 0, w: 0.8, h: 0.5, d: 3, t: 'panel', p: BENCH },
+      { x: 6, z: 0, w: 0.8, h: 0.5, d: 3, t: 'panel', p: BENCH },
+      ...mirror4({ x: 12, z: 10, w: 1.2, h: 8, d: 1.2, t: 'panel', p: 0x2a3348, c: CYAN }),
+      { x: -19, z: 0, w: 0.5, h: 1.1, d: 7, t: 'panel', p: 0x3a4a6a, c: VIOLET },
+      { x: 19, z: 0, w: 0.5, h: 1.1, d: 7, t: 'panel', p: 0x3a4a6a, c: VIOLET },
+      { x: -20, z: -8, w: 3, h: 0.8, d: 1.2, t: 'panel', p: DESK },
+      { x: 20, z: 8, w: 3, h: 0.8, d: 1.2, t: 'panel', p: DESK },
+      { x: -29.3, z: -10, w: 1, h: 2.2, d: 1.4, t: 'steel', p: 0xb02a7a },
+      { x: 29.3, z: 10, w: 1, h: 2.2, d: 1.4, t: 'steel', p: 0x2a7ab0 },
+    ],
+    spawns: [
+      [0, 0, -28], [0, 0, 28], [-29, 0, 0], [29, 0, 0],
+      [-29, 0, -29], [29, 0, 29], [-29, 0, 29], [29, 0, -29],
+    ],
+    teamSpawns: {
+      a: [[-29, 0, -28], [-29, 0, -22], [0, 0, -29], [-3, 0, -25], [3, 0, -25], [29, 0, -28]],
+      b: [[-29, 0, 28], [-29, 0, 22], [0, 0, 29], [-3, 0, 25], [3, 0, 25], [29, 0, 28]],
+    },
+    sites: [{ name: 'A', x: -16, z: 24.5, r: 3.5 }, { name: 'B', x: 16, z: 24.5, r: 3.5 }],
+    pickups: [
+      { t: 'hp', x: 0, z: -13 }, { t: 'hp', x: 0, z: 13 }, { t: 'hp', x: -29, z: 12 }, { t: 'hp', x: 29, z: -12 },
+      { t: 'ammo', x: -16, z: -21 }, { t: 'ammo', x: 16, z: -21 }, { t: 'ammo', x: -16, z: 21 }, { t: 'ammo', x: 16, z: 21 },
+    ],
+    env: {
+      sky: {
+        top: [0.004, 0.006, 0.03], mid: [0.02, 0.03, 0.09], hor: [0.12, 0.07, 0.32], horSun: [0.12, 0.07, 0.32],
+        sunDir: [0, -1, 0], sunGlow: [0, 0, 0], cloudDark: [0.05, 0.06, 0.14], cloudLit: [0.05, 0.06, 0.14],
+        below: [0.02, 0.02, 0.05], clouds: 0.5,
+      },
+      fog: { color: [0.03, 0.035, 0.09], density: 0.016 },
+      exposure: 1.05, bloom: 0.5,
+      hemi: { sky: 0x6070c8, ground: 0x182030, intensity: 0.75 },
+      sun: { color: 0x9fb4ff, intensity: 0.55, pos: [-25, 45, -15] },
+      floor: 'academy', wall: 'panel', wallLight: CYAN,
+      lamps: [[-8, -14, CYAN], [8, 14, PINK], [8, -14, VIOLET], [-8, 14, CYAN]],
+      wallSigns: [['NEON ACADEMY', CYAN, 'N', 0, 7], ['GO TEAM!', PINK, 'S', 0, 5]],
+      signs: [
+        ['CLASS 3-A', CYAN, -16, 2.85, -17.7, 0, 3.2], ['CLASS 3-B', PINK, 16, 2.85, -17.7, 0, 3.2],
+        ['LIBRARY', VIOLET, -16, 2.85, 17.7, Math.PI, 3.2], ['SCIENCE LAB', GREEN, 16, 2.85, 17.7, Math.PI, 3.6],
+        ['QUIZ FRIDAY', PINK, -16, 2.2, -31.95, 0, 4], ['NO RUNNING', ORANGE, 16, 2.2, -31.95, 0, 4],
+        ['QUIET PLEASE', VIOLET, -16, 2.2, 31.95, Math.PI, 4.4], ['LAB 07', GREEN, 16, 2.2, 31.95, Math.PI, 3],
+      ],
+      rain: false, hologram: true, centerLight: CYAN,
+      skyline: { color: 0x0e1018, windows: 0.6, beacons: true, neon: true },
+    },
+  },
+
 ];
 export const mapById = (id) => MAPS.find((m) => m.id === id) || MAPS[0];
 

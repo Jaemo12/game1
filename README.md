@@ -42,6 +42,8 @@ Free plan note: the server **sleeps after 15 minutes with nobody on it**. The fi
 
 **Pickups (Free-for-all / Team Deathmatch):** medkits (+50 HP) and ammo boxes (refill spare ammo) on every map, respawning 20 s after being taken. Guns now have limited spare ammo (shown as "30 / 90").
 
+**Sound:** footsteps for everyone (crouch-walking is silent), panned left/right and muffled with distance so you can hear where enemies are. Guns have layered sounds with echo, shotgun pumps and sniper bolts.
+
 **Settings** (button in the menu): field of view, crosshair style and color, and key bindings for movement and actions.
 
 In team modes, bots split Red/Blue. 3 bots = 2v2, 5 = 3v3, 7 = 4v4. Mode rules (limits, timers) are in the `MODES` table in `public/game.js`, and bombsites and team spawns are in each map in `public/map.js`.
@@ -55,6 +57,7 @@ In team modes, bots split Red/Blue. 3 bots = 2v2, 5 = 3v3, 7 = 4v4. Mode rules (
 | `public/textures.js` | Procedural textures made in code: asphalt, concrete, containers, crates, steel, hazard stripes, gunmetal, polymer, walnut |
 | `public/atmosphere.js` | The look: sky, rain, ripples, light motes, lamps, neon signs, hologram, wet floor, glowing trims, color grading |
 | `public/nav.js` | Bot pathfinding (A* on a 1 m grid) so bots walk around buildings |
+| `public/audio.js` | All sound, made in code: layered gunshots, footsteps, reloads, reverb, ambience |
 | `public/map.js` | The maps (layout, spawns, look), weapon stats, health, respawn time |
 | `public/index.html` | Menu and HUD layout/styles |
 | `server.js` | Serves the files and relays multiplayer rooms (create/join by 4-letter code) |
@@ -63,7 +66,7 @@ In team modes, bots split Red/Blue. 3 bots = 2v2, 5 = 3v3, 7 = 4v4. Mode rules (
 
 ## Easy things to tweak
 
-- **Maps:** three maps live in `MAPS` in `public/map.js` (Dusk Yard, Harbor, Neon Alley), chosen in the menu. Each has `boxes` (`x`/`z` = center, `y` = bottom, `w`/`h`/`d` = size, `t` = material: concrete, barrier, crate, container, steel, brick, `p` = paint, `c` = small neon accent), `spawns`, and an `env` block for its look (sky, fog, sun, lamps, signs, rain). To add a map, copy one entry and change it. Players jump about 1.4 m, so taller spots need a crate to climb.
+- **Maps:** four maps live in `MAPS` in `public/map.js` (Dusk Yard, Harbor, Neon Alley, Neon Academy), chosen in the menu. Each has `boxes` (`x`/`z` = center, `y` = bottom, `w`/`h`/`d` = size, `t` = material: concrete, barrier, crate, container, steel, brick, `p` = paint, `c` = small neon accent), `spawns`, and an `env` block for its look (sky, fog, sun, lamps, signs, rain). To add a map, copy one entry and change it. Players jump about 1.4 m, so taller spots need a crate to climb.
 - **Glow:** the bloom settings are on the `UnrealBloomPass` line in `public/game.js` (strength, radius, threshold).
 - **Weapons:** `WEAPONS` in `public/map.js` has the Pulse Rifle, Scatter Gun, Rail Sniper, Volt Pistol, Hand Cannon and Arc Blade (knife). Each one's damage, fire rate, spread, zoom, recoil, magazine and reload time are there, with a comment explaining every field. Bot versions of the weapons are tuned in `BOT_GUNS` in `public/game.js`.
 - **Bot difficulty:** the `DIFF` table near the top of `public/game.js`.

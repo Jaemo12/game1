@@ -11,10 +11,11 @@ import {
 } from './atmosphere.js';
 import { AVATARS, avatarById, buildAvatar } from './avatars.js';
 import { buildNav, findPath } from './nav.js';
+import { createAudio } from './audio.js';
 import { net, connect, send as netSend, waitFor, leave as netLeave } from './net.js';
 import {
   setMaxAnisotropy, concrete, asphalt, dockFloor, brick, waves, container, crate, steelPlates, hazard,
-  gunmetal, polymer, walnut, boxUV,
+  gunmetal, polymer, walnut, boxUV, scifiPanel, lockers, academyFloor,
 } from './textures.js';
 import { MAPS, mapById, WEAPONS, MAX_HP, RESPAWN_MS, ECONOMY } from './map.js';
 
@@ -149,11 +150,13 @@ const TEX_MAKERS = {
   wall: () => concrete({ seed: 2, base: [122, 120, 118], seams: true }),
   container, crate, brick,
   steel: () => steelPlates(),
+  panel: () => scifiPanel(),
+  locker: () => lockers(),
 };
 const TEX = {};
 const getTex = (type) => (TEX[type] ??= TEX_MAKERS[type]());
 // How many metres one texture covers, per surface (crates show one texture per face).
-const TILE = { concrete: 3, barrier: 2, wall: 6, container: 2.6, steel: 2.5, brick: 3 };
+const TILE = { concrete: 3, barrier: 2, wall: 6, container: 2.6, steel: 2.5, brick: 3, panel: 3, locker: 2.4 };
 const surfaceCache = new Map();
 function surface(type, paint) {
   const key = type + ':' + (paint ?? '');
@@ -161,8 +164,8 @@ function surface(type, paint) {
     const t = getTex(type === 'barrier' ? 'concrete' : type);
     surfaceCache.set(key, new THREE.MeshStandardMaterial({
       map: t.map, normalMap: t.normalMap, roughnessMap: t.roughnessMap, roughness: 1,
-      metalness: type === 'container' || type === 'steel' ? 0.45 : 0,
-      color: paint ?? (type === 'container' ? 0x9a3f2c : type === 'brick' ? 0xa0705e : 0xffffff),
+      metalness: { container: 0.45, steel: 0.45, panel: 0.35, locker: 0.55 }[type] ?? 0,
+      color: paint ?? ({ container: 0x9a3f2c, brick: 0xa0705e, panel: 0x8a93a8, locker: 0x3f6fae }[type] ?? 0xffffff),
     }));
   }
   return surfaceCache.get(key);
@@ -172,11 +175,14 @@ const getHazard = () => (hazardMat ??= new THREE.MeshStandardMaterial({ map: haz
 
 // Ground
 const S = ARENA.size / 2, WH = ARENA.wallHeight;
-const ground = ENV.floor === 'dock' ? dockFloor() : asphalt();
+const ground = ENV.floor === 'dock' ? dockFloor() : ENV.floor === 'academy' ? academyFloor() : asphalt();
 for (const t of Object.values(ground)) t.repeat.set(4, 4);
 const floor = new THREE.Mesh(
   new THREE.PlaneGeometry(ARENA.size, ARENA.size),
-  new THREE.MeshStandardMaterial({ ...ground, roughness: 1, metalness: 0, normalScale: new THREE.Vector2(0.6, 0.6), envMapIntensity: 0.25 }),
+  new THREE.MeshStandardMaterial({
+    ...ground, roughness: 1, metalness: 0, normalScale: new THREE.Vector2(0.6, 0.6), envMapIntensity: ground.emissiveMap ? 0.6 : 0.25,
+    emissive: ground.emissiveMap ? 0xffffff : 0x000000, emissiveIntensity: 0.9, // glowing seams (Neon Academy)
+  }),
 );
 floor.rotation.x = -Math.PI / 2;
 floor.receiveShadow = true;
@@ -206,7 +212,7 @@ function addBox(b, type = b.t || 'concrete', paint = b.p) {
     stripe.position.set(x, y + h - 0.25, z);
     scene.add(stripe);
   }
-  if (type === 'concrete' && h > 2 && b.c) { // a thin neon accent line near the top
+  if ((type === 'concrete' || type === 'panel') && h > 0.9 && b.c) { // a thin neon accent line near the top
     const band = new THREE.Mesh(new THREE.BoxGeometry(w + 0.02, 0.035, d + 0.02), neonMat(b.c, 1.2));
     band.position.set(x, y + h - 0.3, z);
     scene.add(band);
@@ -777,86 +783,34 @@ function updateFx(dt) {
 }
 
 // ---------------------------------------------------------------- sound
-const sfx = (() => {
-  let ctx, master, noise;
-  const init = () => {
-    if (ctx) return ctx;
-    ctx = new AudioContext();
-    master = ctx.createGain(); master.gain.value = 0.7 * settings.volume; master.connect(ctx.destination);
-    noise = ctx.createBuffer(1, ctx.sampleRate * 0.8, ctx.sampleRate);
-    const d = noise.getChannelData(0);
-    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-    ambience();
-    return ctx;
-  };
-  // Background: steady rain plus a low, slowly breathing city hum.
-  const ambience = () => {
-    const long = ctx.createBuffer(2, ctx.sampleRate * 4, ctx.sampleRate);
-    for (let ch = 0; ch < 2; ch++) {
-      const d = long.getChannelData(ch);
-      let last = 0;
-      for (let i = 0; i < d.length; i++) { last = last * 0.6 + (Math.random() * 2 - 1) * 0.4; d[i] = last; }
+const sfx = createAudio(() => settings.volume); // see audio.js
+
+// Where a sound is relative to you: louder when close, panned left/right, muffled when far.
+function hear(pos, range = 60) {
+  const dx = pos.x - player.pos.x, dz = pos.z - player.pos.z;
+  const d = Math.hypot(dx, dz);
+  const right = (Math.cos(player.yaw) * dx - Math.sin(player.yaw) * dz) / (d || 1);
+  return { vol: clamp(1 - d / range, 0, 1), pan: right * Math.min(1, d / 4) * 0.85, far: clamp(d / range, 0, 1) };
+}
+
+// Footsteps for everyone: one step every ~2.2 m of walking. Crouch-walking is silent.
+function footsteps(dt) {
+  for (const e of ents) {
+    if (!e.alive) { e.stepAcc = 0; continue; }
+    const speed = Math.hypot(e.vel.x, e.vel.z);
+    const sliding = e === player && stance.sliding;
+    if (!e.grounded || sliding || e.crouching || speed < 1.5) continue;
+    e.stepAcc = (e.stepAcc || 0) + speed * dt;
+    const sprint = speed > 7.8;
+    if (e.stepAcc < (sprint ? 2.6 : 2.2)) continue;
+    e.stepAcc = 0;
+    if (e === player) sfx.step({ vol: sprint ? 0.45 : 0.32, kind: sprint ? 'sprint' : 'walk' });
+    else {
+      const h = hear(e.pos, 32);
+      if (h.vol > 0) sfx.step({ vol: h.vol * (sprint ? 1.1 : 0.85), pan: h.pan, far: h.far, kind: sprint ? 'sprint' : 'walk' });
     }
-    const rainSrc = ctx.createBufferSource(); rainSrc.buffer = long; rainSrc.loop = true;
-    const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 400;
-    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 4500;
-    const rainGain = ctx.createGain(); rainGain.gain.value = 0.09;
-    rainSrc.connect(hp).connect(lp).connect(rainGain).connect(master);
-    rainSrc.start();
-    const humGain = ctx.createGain(); humGain.gain.value = 0.035;
-    const humLp = ctx.createBiquadFilter(); humLp.type = 'lowpass'; humLp.frequency.value = 220;
-    for (const f of [55, 55.35, 82.4]) {
-      const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f;
-      o.connect(humLp); o.start();
-    }
-    humLp.connect(humGain).connect(master);
-    const lfo = ctx.createOscillator(); lfo.frequency.value = 0.07;
-    const lfoGain = ctx.createGain(); lfoGain.gain.value = 0.015;
-    lfo.connect(lfoGain).connect(humGain.gain); lfo.start();
-  };
-  return {
-    init,
-    setVolume(v) { if (master) master.gain.value = 0.7 * v; },
-    // len = how long the bang rings out (short for rifle, long for sniper)
-    shot(vol = 1, pitch = 1, len = 0.14) {
-      if (!ctx || vol < 0.02) return;
-      const t = ctx.currentTime;
-      const n = ctx.createBufferSource(); n.buffer = noise; n.playbackRate.value = pitch;
-      const f = ctx.createBiquadFilter(); f.type = 'lowpass';
-      f.frequency.setValueAtTime(5000 * pitch, t); f.frequency.exponentialRampToValueAtTime(400, t + len * 0.85);
-      const g = ctx.createGain(); g.gain.setValueAtTime(0.35 * vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + len);
-      n.connect(f).connect(g).connect(master); n.start(t); n.stop(t + len + 0.06);
-      const o = ctx.createOscillator(); o.frequency.setValueAtTime(160 * pitch, t); o.frequency.exponentialRampToValueAtTime(45, t + len * 0.7);
-      const og = ctx.createGain(); og.gain.setValueAtTime(0.4 * vol, t); og.gain.exponentialRampToValueAtTime(0.001, t + len * 0.85);
-      o.connect(og).connect(master); o.start(t); o.stop(t + len);
-    },
-    weapon(w, vol = 1) {
-      if (w.id === 'shotgun') this.shot(vol * 1.15, rand(0.62, 0.7), 0.26);
-      else if (w.id === 'sniper') { this.shot(vol * 1.2, rand(1.25, 1.35), 0.45); this.blip(2400, 0.05, 0.06 * vol, 'sawtooth'); }
-      else if (w.id === 'pistol') this.shot(vol * 0.7, rand(1.3, 1.4), 0.1);
-      else if (w.id === 'cannon') { this.shot(vol * 1.25, rand(0.82, 0.88), 0.34); this.blip(70, 0.12, 0.25 * vol, 'sine'); }
-      else this.shot(vol * 0.9, rand(0.95, 1.05), 0.14);
-    },
-    whoosh(heavy) {
-      if (!ctx) return;
-      const t = ctx.currentTime, len = heavy ? 0.3 : 0.18;
-      const n = ctx.createBufferSource(); n.buffer = noise;
-      const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 1.5;
-      f.frequency.setValueAtTime(700, t); f.frequency.exponentialRampToValueAtTime(heavy ? 2200 : 3200, t + len);
-      const g = ctx.createGain();
-      g.gain.setValueAtTime(0.001, t); g.gain.exponentialRampToValueAtTime(0.25, t + len * 0.4);
-      g.gain.exponentialRampToValueAtTime(0.001, t + len);
-      n.connect(f).connect(g).connect(master); n.start(t); n.stop(t + len + 0.05);
-    },
-    blip(freq, dur = 0.06, vol = 0.2, type = 'square') {
-      if (!ctx) return;
-      const t = ctx.currentTime;
-      const o = ctx.createOscillator(); o.type = type; o.frequency.value = freq;
-      const g = ctx.createGain(); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-      o.connect(g).connect(master); o.start(t); o.stop(t + dur + 0.02);
-    },
-  };
-})();
+  }
+}
 
 // ---------------------------------------------------------------- weapons & viewmodel
 const WEAPON_LIST = Object.values(WEAPONS).sort((a, b) => a.slot - b.slot);
@@ -1131,7 +1085,7 @@ function equip(id, instant = false) {
   muzzleLight.color.set(W.color);
   $('crosshair').dataset.w = id;
   updateHud();
-  if (!instant) sfx.blip(420, 0.04, 0.08);
+  if (!instant) sfx.equip();
 }
 
 function cycleWeapon(step) {
@@ -1146,8 +1100,7 @@ function startReload() {
   if (W.melee || gun.reloading || gun.ammo[W.id] === W.mag || !player.alive || !(gun.reserve[W.id] > 0)) return;
   gun.reloading = true;
   gun.reloadEnd = time + W.reload / 1000;
-  sfx.blip(300, 0.05, 0.1);
-  setTimeout(() => sfx.blip(500, 0.05, 0.1), W.reload * 0.6);
+  sfx.reload(W.id, W.reload);
   updateHud();
 }
 
@@ -1317,6 +1270,7 @@ const MAP_LOOK = {
   yard: ['linear-gradient(#1a2348, #4a3058 55%, #e07a4a)', '#2a2a2e'],
   harbor: ['linear-gradient(#3a78c8, #8fb8e8 60%, #dfe8f0)', '#a8a49a'],
   alley: ['linear-gradient(#05040d, #1a0b2e 55%, #6a1450)', '#14141c'],
+  academy: ['linear-gradient(#020414, #0e1440 55%, #3a1a6a)', 'linear-gradient(90deg, #14182a 45%, #00b8ff 45% 50%, #14182a 50%)'],
 };
 function buildMapPicker() {
   $('maps').innerHTML = MAPS.map((m) => {
@@ -1358,7 +1312,7 @@ $('avatars').addEventListener('click', (e) => {
 const TEST = new URLSearchParams(location.search).has('test');
 if (TEST) {
   window.__arena = { player, get bots() { return bots; }, keys, gun, setFiring: (v) => (firing = v), equip,
-    renderer, scene, camera, composer, THREE, pause: (v) => (testPause = v), get stance() { return stance; }, vm, gunCam, get match() { return match; }, get charge() { return charge; }, get mode() { return mode; }, get ents() { return ents; }, net, get proxies() { return proxies; }, get humans() { return humans; },
+    renderer, scene, camera, composer, THREE, pause: (v) => (testPause = v), get stance() { return stance; }, vm, gunCam, get match() { return match; }, get charge() { return charge; }, get mode() { return mode; }, get ents() { return ents; }, get sfx() { return sfx; }, net, get proxies() { return proxies; }, get humans() { return humans; },
     get weapon() { return W.id; } };
 }
 
@@ -1895,8 +1849,8 @@ function botShoot(b, tgt, dist, d, bg) {
   tracer(origin, end, w.id === 'rifle' ? b.color : w.color, width, life);
   sendShot(b.id, origin, [end], w, w.id === 'rifle' ? b.color : w.color);
   b.model.kick();
-  const hearDist = b.pos.distanceTo(player.pos);
-  sfx.weapon(w, clamp(1 - hearDist / 60, 0, 0.6));
+  const h = hear(b.pos, 90);
+  sfx.gun(w.id, { vol: h.vol * 0.8, pan: h.pan, far: h.far });
 }
 
 // ---------------------------------------------------------------- game modes: Demolition, match end
@@ -2593,7 +2547,8 @@ function onShot(m) {
     tracer(o, end, m.c ?? w.color, sniper ? 2.5 : w.pellets > 1 ? 0.7 : 1, sniper ? 0.3 : 0.07);
     burst(end, m.c ?? w.color, w.pellets > 1 ? 1 : 3);
   }
-  sfx.weapon(w, clamp(1 - o.distanceTo(player.pos) / 60, 0, 0.6));
+  const h = hear(o, 90);
+  sfx.gun(w.id, { vol: h.vol * 0.8, pan: h.pan, far: h.far });
   const shooter = entById(m.id);
   if (shooter && shooter.model) shooter.model.kick();
 }
@@ -2954,7 +2909,7 @@ function tick(dt) {
     }
   }
   updateFx(dt);
-  if (started) { updateModeHud(); updateChargeMesh(); updateEconomyHud(); }
+  if (started) { updateModeHud(); updateChargeMesh(); updateEconomyHud(); if (running) footsteps(dt); }
   renderPickups(dt);
   updateHurt();
   netHudAcc += dt;
@@ -3009,7 +2964,10 @@ function tick(dt) {
       // Feel: head bob, a dip when landing, a slight lean when strafing
       const lateral = player.vel.x * Math.cos(player.yaw) - player.vel.z * Math.sin(player.yaw);
       feel.roll += (-lateral * 0.0035 - feel.roll) * (1 - Math.exp(-8 * dt));
-      if (player.grounded && !feel.wasGrounded && feel.prevVy < -6) feel.dip = Math.min(-feel.prevVy * 0.012, 0.16);
+      if (player.grounded && !feel.wasGrounded && feel.prevVy < -6) {
+        feel.dip = Math.min(-feel.prevVy * 0.012, 0.16);
+        sfx.step({ kind: 'land', vol: Math.min(0.7, -feel.prevVy * 0.05) });
+      }
       feel.dip *= Math.exp(-7 * dt);
       camera.position.y += Math.sin(bob * 2) * 0.03 * bobAmt - feel.dip;
       feel.slideTilt += ((stance.sliding ? 0.09 : 0) - feel.slideTilt) * (1 - Math.exp(-10 * dt));

@@ -415,3 +415,84 @@ export function boxUV(geo, w, h, d, tile) {
   uv.needsUpdate = true;
   return geo;
 }
+
+// ------------------------------------------------------------------ Neon Academy (futuristic school)
+// Sci-fi wall panels: light panels with dark seams, bevels, vents and bolts. Tint with material.color.
+export function scifiPanel({ size = 512, seed = 71 } = {}) {
+  const r = rng(seed);
+  const fine = fbm(size, 48, 2, r), blot = fbm(size, 3, 3, r);
+  const rgb = new Uint8ClampedArray(size * size * 3), h = new Float32Array(size * size), ro = new Float32Array(size * size);
+  const pw = size / 2, ph = size / 3; // 2 x 3 panels per tile
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    const i = y * size + x;
+    const px = x % pw, py = y % ph;
+    const seam = px < 3 || py < 3;
+    const bevel = !seam && (px < 9 || py < 9 || px > pw - 7 || py > ph - 7);
+    const vent = py > ph * 0.72 && py < ph * 0.86 && px > pw * 0.2 && px < pw * 0.8 && (py % 6) < 2;
+    let v = 0.82 + (fine[i] - 0.5) * 0.05 + (blot[i] - 0.5) * 0.06;
+    if (seam) v = 0.18; else if (vent) v = 0.3; else if (bevel) v *= px < 9 || py < 9 ? 1.08 : 0.86;
+    rgb[i * 3] = 205 * v; rgb[i * 3 + 1] = 212 * v; rgb[i * 3 + 2] = 225 * v;
+    h[i] = seam ? 0 : vent ? 0.2 : bevel ? 0.6 : 0.8;
+    ro[i] = seam ? 0.8 : 0.32 + blot[i] * 0.12;
+  }
+  for (let p = 0; p < 6; p++) { // bolts in panel corners
+    const ox = (p % 2) * pw, oy = Math.floor(p / 2) * ph;
+    for (const [bx, by] of [[14, 14], [pw - 14, 14], [14, ph - 14], [pw - 14, ph - 14]]) {
+      for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+        const i = (oy + by + dy) * size + (ox + bx + dx);
+        if (i >= 0 && i < size * size) { rgb[i * 3] = rgb[i * 3 + 1] = rgb[i * 3 + 2] = 120; h[i] = 1; }
+      }
+    }
+  }
+  return pack(size, rgb, h, ro, 5);
+}
+
+// School lockers: four doors per tile with vents, handles and number plates. Tint per row.
+export function lockers({ size = 512, seed = 81 } = {}) {
+  const r = rng(seed);
+  const fine = fbm(size, 40, 2, r), blot = fbm(size, 3, 3, r);
+  const rgb = new Uint8ClampedArray(size * size * 3), h = new Float32Array(size * size), ro = new Float32Array(size * size);
+  const dw = size / 4;
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    const i = y * size + x;
+    const dx = x % dw;
+    const gap = dx < 4 || y < 4 || y > size - 5;
+    const vent = y > size * 0.08 && y < size * 0.2 && dx > dw * 0.25 && dx < dw * 0.75 && (y % 7) < 3;
+    const handle = dx > dw * 0.78 && dx < dw * 0.84 && y > size * 0.45 && y < size * 0.58;
+    const plate = dx > dw * 0.35 && dx < dw * 0.65 && y > size * 0.24 && y < size * 0.29;
+    let v = 0.85 + (fine[i] - 0.5) * 0.06 - clamp01((blot[i] - 0.55) * 2) * 0.12;
+    if (gap) v = 0.15; else if (vent) v = 0.25; else if (handle) v = 1.15; else if (plate) v = 1.2;
+    rgb[i * 3] = 215 * v; rgb[i * 3 + 1] = 220 * v; rgb[i * 3 + 2] = 230 * v;
+    h[i] = gap ? 0 : vent ? 0.25 : handle ? 1 : 0.7;
+    ro[i] = handle ? 0.2 : 0.45;
+  }
+  return pack(size, rgb, h, ro, 5);
+}
+
+// Polished dark floor tiles with glowing seams every few tiles.
+export function academyFloor({ size = 1024, seed = 91 } = {}) {
+  const r = rng(seed);
+  const fine = fbm(size, 64, 2, r), blot = fbm(size, 4, 4, r);
+  const rgb = new Uint8ClampedArray(size * size * 3), h = new Float32Array(size * size), ro = new Float32Array(size * size);
+  const t = size / 8; // 8 x 8 tiles per texture
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    const i = y * size + x;
+    const seam = x % t < 3 || y % t < 3;
+    const tone = ((Math.floor(x / t) + Math.floor(y / t)) % 2) ? 1 : 0.9; // subtle checker
+    const v = seam ? 0.35 : (0.95 + (fine[i] - 0.5) * 0.08) * tone;
+    rgb[i * 3] = 30 * v; rgb[i * 3 + 1] = 34 * v; rgb[i * 3 + 2] = 48 * v;
+    h[i] = seam ? 0 : 0.8;
+    ro[i] = seam ? 0.7 : 0.16 + blot[i] * 0.18; // polished
+  }
+  const out = pack(size, rgb, h, ro, 2);
+  // Emissive: cyan seams every 2 tiles, a pink one every 4.
+  const c = canvasOf(size), g = c.getContext('2d');
+  g.fillStyle = '#000'; g.fillRect(0, 0, size, size);
+  for (let k = 0; k <= 8; k += 2) {
+    g.fillStyle = k % 4 === 0 ? '#ff2bd6' : '#00b8ff';
+    g.fillRect(k * t - 1, 0, 3, size);
+    g.fillRect(0, k * t - 1, size, 3);
+  }
+  out.emissiveMap = tex(c, true);
+  return out;
+}
