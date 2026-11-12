@@ -8,10 +8,17 @@ export function createAudio(getVolume) {
 
   function init() {
     if (ctx) return ctx;
-    ctx = new AudioContext();
-    comp = ctx.createDynamicsCompressor(); // keeps loud moments from clipping
-    comp.threshold.value = -14;
-    comp.ratio.value = 6;
+    ctx = new AudioContext({ latencyHint: 'interactive' });
+    // Browsers suspend audio when the tab loses focus or the device changes; wake it back up.
+    ctx.onstatechange = () => { if (ctx.state !== 'running' && ctx.state !== 'closed') ctx.resume().catch(() => {}); };
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) ensure(); });
+    addEventListener('pointerdown', ensure); addEventListener('keydown', ensure);
+    comp = ctx.createDynamicsCompressor(); // limiter: keeps loud moments from clipping or distorting
+    comp.threshold.value = -10;
+    comp.knee.value = 12;
+    comp.ratio.value = 10;
+    comp.attack.value = 0.003;
+    comp.release.value = 0.2;
     master = ctx.createGain();
     master.gain.value = 0.8 * getVolume();
     comp.connect(master).connect(ctx.destination);
@@ -22,22 +29,40 @@ export function createAudio(getVolume) {
     const ir = ctx.createBuffer(2, len, ctx.sampleRate);
     for (let ch = 0; ch < 2; ch++) {
       const d = ir.getChannelData(ch);
-      for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3.2);
+      let lp = 0;
+      for (let i = 0; i < len; i++) { // smoothed noise: a soft room tail, not a hiss
+        lp += ((Math.random() * 2 - 1) - lp) * 0.25;
+        d[i] = lp * Math.pow(1 - i / len, 3.5) * (i < 400 ? i / 400 : 1);
+      }
     }
     const conv = ctx.createConvolver();
     conv.buffer = ir;
     reverbIn = ctx.createGain();
-    reverbIn.gain.value = 0.32;
+    reverbIn.gain.value = 0.2;
     reverbIn.connect(conv).connect(comp);
     white = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
     const w = white.getChannelData(0);
     for (let i = 0; i < w.length; i++) w[i] = Math.random() * 2 - 1;
-    ambience();
+    // no constant background sound (rain and hum removed)
     return ctx;
   }
 
+  function ensure() { if (ctx && ctx.state !== 'running' && ctx.state !== 'closed') ctx.resume().catch(() => {}); }
+  // Too many sounds at once (a bot firefight) overloads the audio thread and makes crackles.
+  let recent = [];
+  function allow(maxPer100 = 14) {
+    const now = performance.now();
+    recent = recent.filter((t) => now - t < 100);
+    if (recent.length >= maxPer100) return false;
+    recent.push(now);
+    return true;
+  }
+  const num = (v, d = 0) => (Number.isFinite(v) ? v : d);
+
   // A sound "bus": pan + distance muffle, then dry out and a little into the reverb.
-  function bus({ vol = 1, pan = 0, far = 0, wet = 0.25 } = {}) {
+  function bus({ vol = 1, pan = 0, far = 0, wet = 0.25, ttl = 2500 } = {}) {
+    vol = num(vol, 1); pan = num(pan); far = Math.max(0, Math.min(1, num(far)));
+    ensure();
     const g = ctx.createGain();
     g.gain.value = vol;
     const lp = ctx.createBiquadFilter();
@@ -48,8 +73,9 @@ export function createAudio(getVolume) {
     g.connect(lp).connect(p);
     p.connect(dry);
     const send = ctx.createGain();
-    send.gain.value = wet + far * 0.6;
+    send.gain.value = Math.min(0.5, wet + far * 0.35);
     p.connect(send).connect(reverbIn);
+    setTimeout(() => { try { g.disconnect(); lp.disconnect(); p.disconnect(); send.disconnect(); } catch {} }, ttl); // free nodes
     return g;
   }
 
@@ -109,8 +135,8 @@ export function createAudio(getVolume) {
     const r = GUNS[id] || GUNS.rifle;
     const t = ctx.currentTime;
     const vol = opts.vol ?? 1;
-    if (vol < 0.02) return;
-    const out = bus({ vol, pan: opts.pan || 0, far: opts.far || 0, wet: 0.22 });
+    if (vol < 0.02 || !allow((opts.far || 0) > 0.3 ? 8 : 16)) return;
+    const out = bus({ vol: vol * 0.85, pan: opts.pan || 0, far: opts.far || 0, wet: 0.16, ttl: 3000 });
     const jitter = 0.94 + Math.random() * 0.12;
     noise(out, t, { type: 'highpass', freq: r.crack[0] * jitter, q: 0.7, gain: r.crack[2], decay: r.crack[1] });
     const body = ctx.createWaveShaper(); // the body layer gets a little distortion for grit
@@ -136,9 +162,9 @@ export function createAudio(getVolume) {
   function step(opts = {}) {
     if (!ctx) return;
     const vol = opts.vol ?? 1;
-    if (vol < 0.02) return;
+    if (vol < 0.02 || !allow(10)) return;
     const t = ctx.currentTime;
-    const out = bus({ vol, pan: opts.pan || 0, far: opts.far || 0, wet: 0.08 });
+    const out = bus({ vol, pan: opts.pan || 0, far: opts.far || 0, wet: 0.06, ttl: 800 });
     const k = opts.kind || 'walk';
     const loud = k === 'sprint' ? 1.3 : k === 'land' ? 1.6 : 1;
     const p = 0.85 + Math.random() * 0.3;
@@ -177,23 +203,28 @@ export function createAudio(getVolume) {
   // Simple tones for UI and alerts.
   function blip(freq, dur = 0.06, vol = 0.2, type = 'square') {
     if (!ctx) return;
+    ensure();
     const t = ctx.currentTime;
+    if (type === 'square' || type === 'sawtooth') type = 'triangle'; // harsh waves sounded eerie
     const o = ctx.createOscillator();
     o.type = type;
-    o.frequency.value = freq;
+    o.frequency.value = Math.max(20, num(freq, 440));
     const g = ctx.createGain();
-    g.gain.setValueAtTime(vol, t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-    o.connect(g).connect(dry);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(vol * 0.8, t + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    const lpf = ctx.createBiquadFilter(); lpf.type = 'lowpass'; lpf.frequency.value = 3200;
+    o.connect(g).connect(lpf).connect(dry);
     o.start(t);
     o.stop(t + dur + 0.02);
+    o.onended = () => { try { lpf.disconnect(); g.disconnect(); } catch {} };
   }
 
   // Generic noisy bang (explosions, knife hits). len = how long it rings out.
   function shot(vol = 1, pitch = 1, len = 0.14) {
     if (!ctx || vol < 0.02) return;
     const t = ctx.currentTime;
-    const out = bus({ vol, wet: 0.3 });
+    const out = bus({ vol, wet: 0.2, ttl: 3500 });
     noise(out, t, { type: 'lowpass', freq: 5000 * pitch, q: 0.5, gain: 0.5, decay: len, sweepTo: 300 });
     thump(out, t, { from: 160 * pitch, to: 40, gain: 0.6, decay: len * 0.8 });
   }
@@ -228,11 +259,18 @@ export function createAudio(getVolume) {
     hlp.connect(hum).connect(master);
   }
 
+  // One bad call must never break the game or the sound system.
+  function safe(fns) {
+    const out = {};
+    for (const k in fns) out[k] = (...a) => { try { return fns[k](...a); } catch (e) { console.warn('audio', k, e); } };
+    return out;
+  }
+
   return {
     init,
     setVolume(v) { if (master) master.gain.value = 0.8 * v; },
-    gun, step, reload, equip, blip, shot, whoosh,
+    ...safe({ gun, step, reload, equip, blip, shot, whoosh }),
     // Compatibility with older calls: weapon(w, vol) plays that gun's sound.
-    weapon(w, vol = 1, pan = 0, far = 0) { gun(w.id, { vol, pan, far }); },
+    weapon(w, vol = 1, pan = 0, far = 0) { safe({ gun }).gun(w.id, { vol, pan, far }); },
   };
 }

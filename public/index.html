@@ -97,6 +97,22 @@
     #feed .wtag { font-size: 10px; letter-spacing: .12em; font-weight: 700; margin: 0 2px; }
     #ammo .m { opacity: .6; font-size: 20px; }
     #ammo .w { font-size: 12px; letter-spacing: .2em; opacity: .7; text-transform: uppercase; }
+    #minimap { left: 16px; top: 16px; width: 176px; height: 176px; border-radius: 6px; display: none; box-shadow: 0 0 18px #00000088; }
+    #callout { left: 16px; top: 196px; width: 176px; text-align: center; font-size: 11px; letter-spacing: .2em; text-transform: uppercase; color: #bfe6ff; text-shadow: 0 0 8px #00e5ff66; display: none; }
+    #blind { inset: 0; transition: opacity .1s; background: #fff; opacity: 0; pointer-events: none; z-index: 5; }
+    #nades { right: 32px; bottom: 100px; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; font-size: 11px; letter-spacing: .15em; opacity: .9; }
+    #nades span { opacity: .4; } #nades span.has { opacity: 1; }
+    #nades b { display: inline-block; min-width: 18px; padding: 0 4px; margin-right: 4px; text-align: center; border: 1px solid #ffffff55; border-radius: 4px; font-size: 10px; }
+    #chatmenu { left: 16px; top: 50%; transform: translateY(-50%); display: none; background: #05060de6; border: 1px solid #00e5ff44; border-radius: 12px; padding: 14px 16px; min-width: 210px; font-size: 14px; }
+    #chatmenu h3 { margin: 0 0 10px; font-size: 13px; letter-spacing: .2em; } #chatmenu h3 span { opacity: .5; font-weight: 400; font-size: 10px; margin-left: 8px; }
+    #chatmenu div { padding: 4px 0; } #chatmenu .k { display: inline-block; min-width: 22px; margin-right: 8px; text-align: center; border: 1px solid #ffffff44; border-radius: 4px; font-size: 12px; }
+    #chatlog { left: 16px; top: 222px; width: 260px; font-size: 13px; display: flex; flex-direction: column; gap: 3px; text-shadow: 0 1px 3px #000; }
+    #chatlog div { background: #05060d99; padding: 3px 8px; border-radius: 5px; animation: fade 7s forwards; }
+    #feed .wi { width: 36px; height: 13px; vertical-align: middle; margin: 0 6px; fill: currentColor; }
+    #endTable table { width: 100%; margin-top: 14px; border-collapse: collapse; font-size: 13px; }
+    #endTable th { font-size: 10px; letter-spacing: .15em; opacity: .55; text-align: right; padding: 3px 6px; } #endTable th:first-child, #endTable td:first-child { text-align: left; }
+    #endTable td { padding: 4px 6px; text-align: right; font-variant-numeric: tabular-nums; border-top: 1px solid #ffffff14; }
+    #endTable tr.me td { background: #00e5ff14; }
     #feed { right: 24px; top: 20px; display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
     #feed div { background: #05060dcc; border: 1px solid #ffffff22; padding: 5px 10px; border-radius: 6px; font-size: 14px; animation: fade 5s forwards; }
     @keyframes fade { 0%, 80% { opacity: 1 } 100% { opacity: 0 } }
@@ -142,7 +158,7 @@
     #bindList button:focus-visible { outline: 2px solid var(--cyan); }
     #endscreen { position: fixed; inset: 0; z-index: 40; display: none; align-items: center; justify-content: center;
       background: radial-gradient(ellipse at center, #10142ae0, #05060df5); }
-    .endpanel { width: min(440px, calc(100vw - 32px)); text-align: center; padding: 28px; border-radius: 16px;
+    .endpanel { width: min(540px, calc(100vw - 32px)); text-align: center; padding: 28px; border-radius: 16px;
       background: #0a0c18ee; border: 1px solid #ffffff22; }
     #endTitle { margin: 0 0 8px; font-size: 48px; letter-spacing: .14em; }
     #endTitle.win { color: #7cff9f; text-shadow: 0 0 24px #7cff9f88; }
@@ -270,6 +286,7 @@
       <h1 id="endTitle">VICTORY</h1>
       <div id="endSub"></div>
       <div id="endMvp"></div>
+      <div id="endTable"></div>
       <div id="endMe"></div>
       <div class="row" style="margin-top:18px">
         <button type="button" id="endAgain" style="flex:1">PLAY AGAIN</button>
@@ -354,6 +371,12 @@
   </div>
 
   <div class="hud xh" id="crosshair"><i></i><i></i><i></i><i></i><u></u><b></b></div>
+  <canvas class="hud" id="minimap"></canvas>
+  <div class="hud" id="callout"></div>
+  <div class="hud" id="blind"></div>
+  <div class="hud" id="nades"></div>
+  <div class="hud" id="chatlog"></div>
+  <div class="hud" id="chatmenu"></div>
   <div class="hud" id="dmgdir"></div>
   <div class="hud" id="hitmarker"></div>
   <div class="hud" id="vignette"></div>

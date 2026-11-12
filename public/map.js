@@ -27,6 +27,13 @@ const box6 = (x, z, axis, paint, level = 0) => ({
   x, z, y: level * 2.4, w: axis === 'x' ? 6 : 2.4, h: 2.4, d: axis === 'x' ? 2.4 : 6, t: 'container', p: paint,
 });
 
+
+// Straight wall between two points (axis-aligned), 0.8 m thick.
+const wall = (x1, z1, x2, z2, h = 4.5, p = 0xcdbfa8, c) => ({
+  x: (x1 + x2) / 2, z: (z1 + z2) / 2, y: 0, w: Math.max(0.8, Math.abs(x2 - x1)), h, d: Math.max(0.8, Math.abs(z2 - z1)), t: 'concrete', p, wd: true, ...(c ? { c } : {}),
+});
+const mx = (b) => [b, { ...b, x: -b.x }]; // repeat on the other side of the map
+
 const CORNER_SPAWNS = [
   [0, 0, -28], [0, 0, 28], [-28, 0, 0], [28, 0, 0],
   [-28, 0, -28], [28, 0, 28], [-28, 0, 28], [28, 0, -28],
@@ -318,6 +325,94 @@ export const MAPS = [
       ],
       rain: false, hologram: true, centerLight: CYAN,
       skyline: { color: 0x0e1018, windows: 0.6, beacons: true, neon: true },
+    },
+  },
+
+  // ---------------------------------------------------------------- Sunset Split
+  // A bigger, Demolition-style map (84 m). Attackers start in the south, defenders in the north.
+  // Two sites (A west, B east), a walled mid corridor with a window, and an outer lane on each side.
+  {
+    id: 'split', name: 'Sunset Split', tag: 'Big sunset map built for Demolition: two sites, a mid corridor, long lanes.',
+    size: 84, wallHeight: 8,
+    boxes: [
+      // Site front walls (leave a 12 m main entrance each) and the walls toward the defender spawn
+      ...mx(wall(-42, -14, -33, -14)), ...mx(wall(-21, -14, -13, -14, 4.5, 0xcdbfa8, ORANGE)),
+      ...mx(wall(-13, -42, -13, -35)), ...mx(wall(-13, -24, -13, -14)),
+      // Mid corridor: two walls with a window-door in the middle
+      ...mx(wall(-6, -8, -6, 1, 4.5, 0xb9a58c)), ...mx(wall(-6, 7, -6, 14, 4.5, 0xb9a58c)),
+      { x: 0, y: 0, z: 3.5, w: 2.5, h: 1.25, d: 2.5, t: 'crate' },
+      // Attacker-side buildings
+      ...mx({ x: -17, y: 0, z: 24, w: 16, h: 4.5, d: 12, t: 'concrete', p: 0xb9a58c, c: CYAN, bld: true }),
+      // Mid-side buildings (shops) and a kiosk on each side, so the middle of the map is built up too
+      ...mx({ x: -21.5, y: 0, z: 2, w: 15, h: 4.5, d: 12, t: 'concrete', p: 0xc4b49a, c: PINK, bld: true }),
+      ...mx({ x: -37, y: 0, z: -8, w: 5, h: 3.2, d: 4, t: 'concrete', p: 0xa89880, bld: true }),
+      // Outer lanes: staggered containers
+      ...mx(box6(-30, 22, 'z', RUST)), ...mx(box6(-37, 28, 'z', BLUE)),
+      // Attacker plaza cover
+      { x: 0, y: 0, z: 24, w: 2.5, h: 2.5, d: 2.5, t: 'crate' },
+      ...mx({ x: -5, y: 0, z: 31, w: 4, h: 1.2, d: 1, t: 'barrier' }),
+      // Defender courtyard: pillar and low barriers
+      { x: 0, y: 0, z: -22, w: 2, h: 4.5, d: 2, t: 'concrete', p: 0xb9a58c, c: PINK },
+      ...mx({ x: -9, y: 0, z: -20, w: 4, h: 1.2, d: 1, t: 'barrier' }),
+      // Site A: raised plant platform, crates, a container
+      { x: -28, y: 0, z: -37, w: 9, h: 1.2, d: 6, t: 'concrete', p: OCHRE, c: CYAN },
+      { x: -20, y: 0, z: -28, w: 2.5, h: 2.5, d: 2.5, t: 'crate' },
+      { x: -38, y: 0, z: -25, w: 2.5, h: 1.25, d: 2.5, t: 'crate' },
+      box6(-37, -33, 'z', BLUE),
+      { x: -27, y: 0, z: -19, w: 5, h: 1.2, d: 1, t: 'barrier' },
+      // Site B: similar, different layout
+      { x: 28, y: 0, z: -37, w: 9, h: 1.2, d: 6, t: 'concrete', p: OCHRE, c: PINK },
+      { x: 21, y: 0, z: -26, w: 2.5, h: 2.5, d: 2.5, t: 'crate' },
+      { x: 37, y: 0, z: -27, w: 2.5, h: 2.5, d: 2.5, t: 'crate' },
+      box6(36, -34, 'z', DGREEN),
+      { x: 27, y: 0, z: -19, w: 1, h: 1.2, d: 5, t: 'barrier' },
+    ],
+    // Props: [kind, x, z, rotation, color?]. barrel, car, planter, vending, bench, post (street lamp)
+    props: [
+      ['car', -34, 12, Math.PI / 2, 0x3a78b0], ['car', 36, 14, Math.PI / 2, 0xc0503a], ['car', 12, 34, 0, 0xd9a03a],
+      ['barrel', -23, -22], ['barrel', -22.3, -22.6], ['barrel', 24, -22], ['barrel', 32.5, -20],
+      ['barrel', -10, 12], ['barrel', 10, 12.6], ['barrel', -40, -24], ['barrel', 40, -24],
+      ['planter', -7, 34], ['planter', 7, 34], ['planter', -9, -33], ['planter', 9, -33],
+      ['vending', -5.2, 11, Math.PI / 2], ['vending', 5.2, -5, -Math.PI / 2], ['vending', -5.2, -5.4, Math.PI / 2],
+      ['bench', -6, -18, 0], ['bench', 6, -18, 0], ['bench', 0, 28, Math.PI],
+      ['post', -12, 36], ['post', 12, 36], ['post', -11, -12], ['post', 11, -12], ['post', -36, 18], ['post', 36, 18],
+      ['post', -22, -10], ['post', 22, -10],
+    ],
+    spawns: [
+      [-30, 0, 36], [30, 0, 36], [0, 0, 39], [-30, 0, -22], [30, 0, -22], [0, 0, -39], [-8, 0, -26], [8, 0, -26],
+    ],
+    // a = attackers (south), b = defenders (north, near the sites)
+    teamSpawns: {
+      a: [[-10, 0, 39], [-5, 0, 39], [0, 0, 39], [5, 0, 39], [10, 0, 39]],
+      b: [[-10, 0, -39], [-5, 0, -39], [0, 0, -39], [5, 0, -39], [10, 0, -39]],
+    },
+    sites: [{ name: 'A', x: -28, z: -30, r: 4.5 }, { name: 'B', x: 28, z: -30, r: 4.5 }],
+    // Area names shown under the minimap and on it
+    callouts: [
+      { name: 'A Site', x: -28, z: -31 }, { name: 'B Site', x: 28, z: -31 },
+      { name: 'A Main', x: -27, z: -17 }, { name: 'B Main', x: 27, z: -17 },
+      { name: 'A Link', x: -12, z: -30 }, { name: 'B Link', x: 12, z: -30 },
+      { name: 'Courtyard', x: 0, z: -21 }, { name: 'Defender Spawn', x: 0, z: -38 },
+      { name: 'Mid', x: 0, z: 3 }, { name: 'A Approach', x: -22, z: -9 }, { name: 'B Approach', x: 22, z: -9 },
+      { name: 'A Lane', x: -35, z: 8 }, { name: 'B Lane', x: 35, z: 8 },
+      { name: 'Attacker Plaza', x: 0, z: 27 }, { name: 'Attacker Spawn', x: 0, z: 38 },
+      { name: 'A Garage', x: -34, z: 30 }, { name: 'B Garage', x: 34, z: 30 },
+    ],
+    pickups: [
+      { t: 'hp', x: 0, z: -17 }, { t: 'hp', x: 0, z: 36 }, { t: 'hp', x: -22, z: -18 }, { t: 'hp', x: 22, z: -18 },
+      { t: 'ammo', x: 0, z: 10 }, { t: 'ammo', x: -27, z: 36 }, { t: 'ammo', x: 27, z: 36 }, { t: 'ammo', x: -18, z: -38 }, { t: 'ammo', x: 18, z: -38 },
+    ],
+    env: {
+      sky: DUSK_SKY,
+      fog: { color: [0.2, 0.16, 0.22], density: 0.009 },
+      exposure: 1.0, bloom: 0.35,
+      hemi: { sky: 0x8a9ad0, ground: 0x3a2a24, intensity: 0.9 },
+      sun: { color: 0xffb27a, intensity: 1.9, pos: [-45, 22, -30] },
+      floor: 'asphalt', wall: 'wall', wallLight: 0xffb070,
+      lamps: [[-10, -26, 0xffb070], [10, -26, 0xffb070], [0, 28, 0xffb070], [-26, 32, 0xdfe8ff], [26, 32, 0xdfe8ff]],
+      wallSigns: [['SPLIT', ORANGE, 'N', 0, 9], ['SITE A', CYAN, 'N', -28, 6], ['SITE B', PINK, 'N', 28, 6], ['ATTACK', GREEN, 'S', 0, 6]],
+      rain: false, hologram: false, centerLight: 0xffb070,
+      skyline: { color: 0x1c1e26, windows: 0.45, beacons: true },
     },
   },
 
