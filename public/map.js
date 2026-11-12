@@ -10,6 +10,7 @@ const CYAN = 0x00e5ff, PINK = 0xff2bd6, ORANGE = 0xff8a00, VIOLET = 0x8b5cff, GR
 // Neon Academy colors
 const SCHOOL_WALL = 0xc8d0e0, DESK = 0xe8ecf4, TEACHER = 0x5a6a8a, SHELF = 0x6a4a3a, BENCH = 0x8a93a8;
 const LOCKER_A = 0x3f6fae, LOCKER_B = 0xb04a5a, LOCKER_C = 0x2f8a8a;
+const SAND = 0xd9bd8c, SAND2 = 0xc4a272, TERRA = 0xb5654a, STEEL_P = 0xdde2ea;
 const RUST = 0x9a3f2c, BLUE = 0x2f5a8c, DGREEN = 0x3f6e4c, GREY = 0x8a8f96, OCHRE = 0xc06a2b, WHITE = 0xd8d8d0;
 
 function mirror4(b) {
@@ -29,8 +30,8 @@ const box6 = (x, z, axis, paint, level = 0) => ({
 
 
 // Straight wall between two points (axis-aligned), 0.8 m thick.
-const wall = (x1, z1, x2, z2, h = 4.5, p = 0xcdbfa8, c) => ({
-  x: (x1 + x2) / 2, z: (z1 + z2) / 2, y: 0, w: Math.max(0.8, Math.abs(x2 - x1)), h, d: Math.max(0.8, Math.abs(z2 - z1)), t: 'concrete', p, wd: true, ...(c ? { c } : {}),
+const wall = (x1, z1, x2, z2, h = 4.5, p = 0xcdbfa8, c, t = 'concrete') => ({
+  x: (x1 + x2) / 2, z: (z1 + z2) / 2, y: 0, w: Math.max(0.8, Math.abs(x2 - x1)), h, d: Math.max(0.8, Math.abs(z2 - z1)), t, p, wd: true, ...(c ? { c } : {}),
 });
 const mx = (b) => [b, { ...b, x: -b.x }]; // repeat on the other side of the map
 
@@ -413,6 +414,194 @@ export const MAPS = [
       wallSigns: [['SPLIT', ORANGE, 'N', 0, 9], ['SITE A', CYAN, 'N', -28, 6], ['SITE B', PINK, 'N', 28, 6], ['ATTACK', GREEN, 'S', 0, 6]],
       rain: false, hologram: false, centerLight: 0xffb070,
       skyline: { color: 0x1c1e26, windows: 0.45, beacons: true },
+    },
+  },
+
+  // ---------------------------------------------------------------- Dune Bazaar
+  // A sunny market town built for Demolition (88 m). Attackers start in the south, defenders in the north.
+  // Five routes north: a long west lane (A Long), a narrow alley beside it (A Alley) with a small cut between them,
+  // the covered Souk in the middle, a tight B Alley, and the east lane. Sites have two doors each, B also has a window.
+  // Each site has a raised ledge ("heaven") you can climb with the step crate to hold the site from above.
+  {
+    id: 'bazaar', name: 'Dune Bazaar', tag: 'Sunny market town. Covered souk, long lanes, high ledges over both sites.',
+    size: 88, wallHeight: 8,
+    boxes: [
+      // Souk: two long walls with stall arches, and roof slabs that give shade (and cover from above)
+      wall(-8, 22, -8, 14, 4.5, SAND2), wall(-8, 8, -8, -2, 4.5, SAND2), wall(-8, -8, -8, -12, 4.5, SAND2),
+      wall(8, 22, 8, 16, 4.5, SAND2), wall(8, 10, 8, 0, 4.5, SAND2), wall(8, -6, 8, -12, 4.5, SAND2),
+      { x: 0, y: 3.2, z: 18, w: 17, h: 0.4, d: 8, t: 'concrete', p: TERRA },
+      { x: 0, y: 3.2, z: 3, w: 17, h: 0.4, d: 12, t: 'concrete', p: TERRA },
+      { x: 0, y: 0, z: 8, w: 2.5, h: 2.5, d: 2.5, t: 'crate' },
+      { x: -3.5, y: 0, z: -5, w: 3.5, h: 0.9, d: 1.2, t: 'panel', p: 0x9a7a52 },
+      // West: two shop blocks with a 3 m cut between them, A Alley beside the Souk, A Long along the edge
+      { x: -22, y: 0, z: 17, w: 14, h: 4.5, d: 10, t: 'concrete', p: SAND, c: ORANGE, bld: true },
+      { x: -22, y: 0, z: 5.5, w: 14, h: 4.5, d: 7, t: 'concrete', p: SAND2, bld: true },
+      { x: -40, y: 0, z: 10, w: 2, h: 1.3, d: 2, t: 'crate' }, { x: -34, y: 0, z: -4, w: 5, h: 1.2, d: 1, t: 'barrier' },
+      box6(-41, -8, 'z', RUST), { x: -37, y: 0, z: 22, w: 6, h: 1.2, d: 1, t: 'barrier' },
+      // East: one big block, a tight B Alley beside the Souk, a small annex splitting the east lane
+      { x: 21, y: 0, z: 13, w: 18, h: 4.5, d: 18, t: 'concrete', p: SAND, c: CYAN, bld: true },
+      { x: 37, y: 0, z: 10, w: 6, h: 3.2, d: 6, t: 'concrete', p: SAND2, bld: true },
+      { x: 41, y: 0, z: -2, w: 2.5, h: 2.5, d: 2.5, t: 'crate' }, { x: 33, y: 0, z: -4, w: 1, h: 1.2, d: 5, t: 'barrier' },
+      box6(40, 22, 'z', BLUE),
+      // Defender site walls: A Main (10 m) and A Door; B Main (6 m), B Door and B Window
+      wall(-44, -14, -34, -14), wall(-24, -14, -14, -14, 4.5, SAND, ORANGE),
+      wall(-14, -44, -14, -36), wall(-14, -26, -14, -14),
+      wall(44, -14, 36, -14), wall(30, -14, 14, -14, 4.5, SAND, CYAN),
+      wall(14, -44, 14, -36), wall(14, -30, 14, -24), wall(14, -20, 14, -14),
+      { x: 14, y: 0, z: -22, w: 0.8, h: 1.0, d: 4, t: 'concrete', p: SAND2 },   // window sill (jump over it)
+      { x: 14, y: 2.4, z: -22, w: 0.8, h: 2.1, d: 4, t: 'concrete', p: SAND2 }, // window lintel
+      // Site A: plant platform, heaven ledge with its step, cover
+      { x: -30, y: 0, z: -41, w: 10, h: 1.2, d: 4, t: 'concrete', p: OCHRE, c: CYAN },
+      { x: -41, y: 0, z: -33, w: 5, h: 2.4, d: 12, t: 'concrete', p: SAND2 },
+      { x: -37.5, y: 0, z: -27, w: 2, h: 1.2, d: 2, t: 'crate' },
+      { x: -22, y: 0, z: -26, w: 2.5, h: 2.5, d: 2.5, t: 'crate' }, { x: -33, y: 0, z: -21, w: 2.5, h: 1.25, d: 2.5, t: 'crate' },
+      { x: -29, y: 0, z: -19, w: 5, h: 1.2, d: 1, t: 'barrier' },
+      // Site B: platform, heaven ledge, containers
+      { x: 30, y: 0, z: -41, w: 10, h: 1.2, d: 4, t: 'concrete', p: OCHRE, c: PINK },
+      { x: 41, y: 0, z: -31, w: 5, h: 2.4, d: 12, t: 'concrete', p: SAND2 },
+      { x: 37.5, y: 0, z: -25, w: 2, h: 1.2, d: 2, t: 'crate' },
+      box6(24, -24, 'z', DGREEN), { x: 32, y: 0, z: -22, w: 2.5, h: 2.5, d: 2.5, t: 'crate' }, { x: 27, y: 0, z: -19, w: 1, h: 1.2, d: 5, t: 'barrier' },
+      // Courtyard and plaza cover
+      { x: -8, y: 0, z: -19, w: 4, h: 1.2, d: 1, t: 'barrier' }, { x: 8, y: 0, z: -19, w: 4, h: 1.2, d: 1, t: 'barrier' },
+      ...mx({ x: -22, y: 0, z: 30, w: 2.5, h: 2.5, d: 2.5, t: 'crate' }),
+      { x: -12, y: 0, z: 22, w: 2, h: 4.5, d: 2, t: 'concrete', p: TERRA }, { x: 12, y: 0, z: 22, w: 2, h: 4.5, d: 2, t: 'concrete', p: TERRA },
+    ],
+    props: [
+      ['stall', -4.5, 17, Math.PI / 2], ['stall', 4.5, 13, -Math.PI / 2], ['stall', -4.5, 3, Math.PI / 2], ['stall', 4.5, -3, -Math.PI / 2],
+      ['stall', -20, 33], ['stall', 20, 34], ['stall', -38, 16, Math.PI / 2], ['stall', 12, -30],
+      ['fountain', 0, 32], ['fountain', 0, -23],
+      ['planter', -13, 38], ['planter', 13, 38], ['planter', -9, -33], ['planter', 9, -33], ['planter', -12, -10], ['planter', 12, -10],
+      ['barrel', -26, -23], ['barrel', 40, -24], ['barrel', -11.5, 13], ['barrel', 10.5, 3], ['barrel', 33, 6], ['barrel', -42, 14],
+      ['car', 36, 30, 0, 0xd9a03a], ['car', -30, 38, 0, 0x3a78b0],
+      ['bench', -7, -16, 0], ['bench', 7, -16, 0], ['bench', 0, 38, Math.PI],
+      ['post', -12, 30], ['post', 12, 30], ['post', -37, 4], ['post', 38, 26], ['post', 0, -12],
+    ],
+    spawns: [
+      [-38, 0, 36], [38, 0, 36], [0, 0, 40], [-36, 0, -22], [36, 0, -22], [0, 0, -40], [-11, 0, 8], [11, 0, -8],
+    ],
+    teamSpawns: {
+      a: [[-10, 0, 40], [-5, 0, 40], [0, 0, 40], [5, 0, 40], [10, 0, 40]],
+      b: [[-10, 0, -40], [-5, 0, -40], [0, 0, -40], [5, 0, -40], [10, 0, -40]],
+    },
+    sites: [{ name: 'A', x: -29, z: -31, r: 4.5 }, { name: 'B', x: 29, z: -31, r: 4.5 }],
+    callouts: [
+      { name: 'A Site', x: -29, z: -32 }, { name: 'B Site', x: 29, z: -32 },
+      { name: 'A Heaven', x: -41, z: -33 }, { name: 'B Heaven', x: 41, z: -31 },
+      { name: 'A Main', x: -29, z: -17 }, { name: 'B Main', x: 33, z: -17 }, { name: 'B Window', x: 18, z: -22 },
+      { name: 'A Door', x: -17, z: -31 }, { name: 'B Door', x: 17, z: -33 }, { name: 'Courtyard', x: 0, z: -25 },
+      { name: 'Souk', x: 0, z: 3 }, { name: 'A Alley', x: -11.5, z: 8 }, { name: 'B Alley', x: 10, z: 8 },
+      { name: 'A Cut', x: -22, z: 10.5 }, { name: 'A Long', x: -37, z: 4 }, { name: 'East Lane', x: 38, z: 0 },
+      { name: 'Plaza', x: 0, z: 30 }, { name: 'Attacker Spawn', x: 0, z: 40 }, { name: 'Defender Spawn', x: 0, z: -40 },
+    ],
+    pickups: [
+      { t: 'hp', x: 0, z: -16 }, { t: 'hp', x: 5, z: 35 }, { t: 'hp', x: -11.5, z: 3 }, { t: 'hp', x: 40, z: 12 },
+      { t: 'ammo', x: 0, z: 12 }, { t: 'ammo', x: -37, z: 14 }, { t: 'ammo', x: -22, z: -22 }, { t: 'ammo', x: 22, z: -28 }, { t: 'ammo', x: 36, z: 34 },
+    ],
+    env: {
+      sky: {
+        top: [0.14, 0.3, 0.68], mid: [0.4, 0.58, 0.86], hor: [0.85, 0.8, 0.72], horSun: [1.2, 0.9, 0.6],
+        sunDir: [0.55, 0.55, 0.25], sunGlow: [1.6, 1.2, 0.8], cloudDark: [0.8, 0.76, 0.74], cloudLit: [1.0, 0.95, 0.88],
+        below: [0.5, 0.45, 0.4], clouds: 0.35,
+      },
+      fog: { color: [0.78, 0.68, 0.55], density: 0.0075 },
+      exposure: 1.0, bloom: 0.15,
+      hemi: { sky: 0xd8e4ff, ground: 0x9a7a52, intensity: 1.15 },
+      sun: { color: 0xffe2b8, intensity: 2.4, pos: [40, 40, 10] },
+      floor: 'dock', wall: 'wall', wallLight: null,
+      lamps: [[-10, 36, 0xffcf90], [10, 36, 0xffcf90], [0, -12, 0xffcf90]],
+      wallSigns: [['BAZAAR', ORANGE, 'N', 0, 9], ['SPICES', 0xff6a3a, 'S', -20, 6], ['TEA HOUSE', CYAN, 'S', 20, 6], ['A', 0xffd08a, 'N', -29, 4], ['B', 0xffd08a, 'N', 29, 4]],
+      rain: false, hologram: false,
+      skyline: { color: 0x8f7d68, windows: 0.04, beacons: false },
+    },
+  },
+
+  // ---------------------------------------------------------------- Foundry
+  // An industrial map for Demolition (80 m) with real height. West: a long pipe alley. Middle: a walled hall with a
+  // catwalk you climb from either end, covering both door lines. East: a maze of stacked containers. Furnace (A) in
+  // the west, Dock (B) in the east.
+  {
+    id: 'foundry', name: 'Foundry', tag: 'Dark industrial plant. Catwalk high ground, long pipe alley, container maze.',
+    size: 80, wallHeight: 9,
+    boxes: [
+      // Central hall (x +-14, z -10..14): side walls with doors, a north wall with a wide gap, catwalk across the middle
+      wall(-14, 14, -14, 9, 5, STEEL_P, undefined, 'steel'), wall(-14, 3, -14, -3, 5, STEEL_P, undefined, 'steel'), wall(-14, -8, -14, -10, 5, STEEL_P, undefined, 'steel'),
+      wall(14, 14, 14, 8, 5, STEEL_P, undefined, 'steel'), wall(14, 2, 14, -4, 5, STEEL_P, undefined, 'steel'), wall(14, -8, 14, -10, 5, STEEL_P, undefined, 'steel'),
+      wall(-14, -10, -5, -10, 5, STEEL_P, ORANGE, 'steel'), wall(5, -10, 14, -10, 5, STEEL_P, ORANGE, 'steel'),
+      { x: 0, y: 2.6, z: 2, w: 19, h: 0.4, d: 3, t: 'steel', p: 0xb8c0ce },                      // catwalk deck (top at 3.0)
+      { x: 0, y: 3.0, z: 0.6, w: 19, h: 0.9, d: 0.15, t: 'steel', p: 0xb8c0ce },                  // railings
+      { x: 0, y: 3.0, z: 3.4, w: 19, h: 0.9, d: 0.15, t: 'steel', p: 0xb8c0ce },
+      ...mx({ x: -12.4, y: 0, z: 2, w: 2, h: 1.2, d: 3, t: 'crate' }), ...mx({ x: -10.4, y: 0, z: 2, w: 2, h: 2.4, d: 3, t: 'steel', p: 0xb8c0ce }), // stairs at both ends
+      ...mx({ x: -5, y: 0, z: 2, w: 1, h: 2.6, d: 1, t: 'steel', p: 0xb8c0ce }),                 // supports
+      { x: 0, y: 0, z: -5.5, w: 4, h: 2.4, d: 3.5, t: 'steel', p: 0xe0905a, c: ORANGE },         // turbine
+      ...mx({ x: -8, y: 0, z: 12, w: 1.4, h: 5, d: 1.4, t: 'steel', p: 0xb8c0ce }),
+      // West: machine shop (two blocks, 3 m cut) with a pipe alley on the outside
+      { x: -22, y: 0, z: 17, w: 8, h: 4.5, d: 10, t: 'steel', p: 0xdde2ea, c: ORANGE, bld: true },
+      { x: -22, y: 0, z: 4.5, w: 8, h: 4.5, d: 9, t: 'steel', p: 0xdde2ea, bld: true },
+      { x: -36, y: 0, z: 10, w: 1, h: 1.1, d: 10, t: 'barrier' }, { x: -38, y: 0, z: 19, w: 2.5, h: 2.5, d: 2.5, t: 'crate' },
+      box6(-37, 0, 'z', RUST), { x: -31, y: 0, z: -6, w: 5, h: 1.2, d: 1, t: 'barrier' }, { x: -32, y: 0, z: 14, w: 2.5, h: 1.25, d: 2.5, t: 'crate' },
+      // East: a container maze, with stacks you can climb using step crates
+      box6(24, 17, 'x', RUST), box6(24, 17, 'x', RUST, 1),
+      box6(34, 14, 'z', BLUE), box6(34, 6, 'z', 0x8a8f96),
+      box6(25, 6, 'z', DGREEN), box6(30, -1, 'x', RUST), box6(20, -3, 'x', BLUE), box6(37, -4, 'z', DGREEN),
+      { x: 28, y: 0, z: 13, w: 2, h: 1.2, d: 2, t: 'crate' }, { x: 17, y: 0, z: -3, w: 2, h: 1.2, d: 2, t: 'crate' },
+      // Furnace (A, west) and Dock (B, east) rooms
+      wall(-40, -14, -34, -14, 5, STEEL_P, undefined, 'steel'), wall(-24, -14, -16, -14, 5, STEEL_P, ORANGE, 'steel'),
+      wall(-16, -40, -16, -30, 5, STEEL_P, undefined, 'steel'), wall(-16, -22, -16, -14, 5, STEEL_P, undefined, 'steel'),
+      wall(40, -14, 34, -14, 5, STEEL_P, undefined, 'steel'), wall(26, -14, 16, -14, 5, STEEL_P, CYAN, 'steel'),
+      wall(16, -40, 16, -32, 5, STEEL_P, undefined, 'steel'), wall(16, -24, 16, -14, 5, STEEL_P, undefined, 'steel'),
+      { x: -36, y: 0, z: -35, w: 6, h: 3, d: 6, t: 'steel', p: 0xe0905a, c: ORANGE },            // furnace (climb the step to hold it)
+      { x: -30.5, y: 0, z: -31, w: 2, h: 1.2, d: 2, t: 'crate' }, { x: -32.5, y: 0, z: -31, w: 2, h: 2.4, d: 2, t: 'steel', p: 0xb8c0ce },
+      { x: -22, y: 0, z: -26, w: 2.5, h: 2.5, d: 2.5, t: 'crate' }, { x: -30, y: 0, z: -19, w: 5, h: 1.2, d: 1, t: 'barrier' },
+      { x: -22, y: 0, z: -36, w: 1.2, h: 1.2, d: 6, t: 'barrier' },
+      box6(34, -35, 'x', RUST), { x: 34, y: 0, z: -32.6, w: 2, h: 1.2, d: 2, t: 'crate' },
+      { x: 24, y: 0, z: -24, w: 2.5, h: 2.5, d: 2.5, t: 'crate' }, box6(36, -22, 'z', BLUE), { x: 29, y: 0, z: -19, w: 1, h: 1.2, d: 5, t: 'barrier' },
+      // Courtyard and attacker plaza cover
+      { x: 0, y: 0, z: -22, w: 2, h: 4.5, d: 2, t: 'steel', p: 0xb8c0ce, c: ORANGE },
+      ...mx({ x: -8, y: 0, z: -18, w: 4, h: 1.2, d: 1, t: 'barrier' }),
+      { x: 0, y: 0, z: 28, w: 2.5, h: 2.5, d: 2.5, t: 'crate' }, ...mx({ x: -16, y: 0, z: 30, w: 4, h: 1.2, d: 1, t: 'barrier' }),
+    ],
+    props: [
+      ['barrel', -34, -22, 0, 0x8a3a2a], ['barrel', -33.2, -22.6, 0, 0x8a3a2a], ['barrel', 20, -30, 0, 0x2a6a8a], ['barrel', 21, -29.5, 0, 0x2a6a8a],
+      ['barrel', -18, 4, 0, 0xb08a2a], ['barrel', 18, 12, 0, 0xb08a2a], ['barrel', -38, 6, 0, 0x8a3a2a], ['barrel', 8, 20, 0, 0xb08a2a],
+      ['car', 10, 31, 0, 0x9a9a9a], ['car', -28, 34, 0, 0xb08a2a],
+      ['vending', -13.2, 11, Math.PI / 2], ['vending', 13.2, 12, -Math.PI / 2],
+      ['post', -12, 34], ['post', 12, 34], ['post', -30, 24], ['post', 38, 24], ['post', -6, -14], ['post', 6, -14],
+      ['bench', 0, 36, Math.PI], ['bench', -6, -26, 0], ['bench', 6, -26, 0],
+    ],
+    spawns: [
+      [-34, 0, 34], [30, 0, 34], [0, 0, 38], [-30, 0, -24], [30, 0, -24], [0, 0, -38], [-8, 0, 8], [8, 0, -4],
+    ],
+    teamSpawns: {
+      a: [[-10, 0, 38], [-5, 0, 38], [0, 0, 38], [5, 0, 38], [10, 0, 38]],
+      b: [[-10, 0, -38], [-5, 0, -38], [0, 0, -38], [5, 0, -38], [10, 0, -38]],
+    },
+    sites: [{ name: 'A', x: -27, z: -28, r: 4.5 }, { name: 'B', x: 27, z: -29, r: 4.5 }],
+    callouts: [
+      { name: 'Furnace (A)', x: -27, z: -29 }, { name: 'Dock (B)', x: 27, z: -29 }, { name: 'A Main', x: -29, z: -17 }, { name: 'B Main', x: 30, z: -17 },
+      { name: 'A Door', x: -18, z: -26 }, { name: 'B Door', x: 18, z: -28 }, { name: 'Courtyard', x: 0, z: -24 }, { name: 'Defender Spawn', x: 0, z: -37 },
+      { name: 'Hall', x: 0, z: 6 }, { name: 'Catwalk', x: 0, z: 2 }, { name: 'Hall North', x: 0, z: -10 }, { name: 'West Door', x: -16, z: 6 },
+      { name: 'Pipe Alley', x: -35, z: 8 }, { name: 'Shop Cut', x: -22, z: 10.5 }, { name: 'Container Maze', x: 28, z: 6 }, { name: 'Maze Back', x: 28, z: -6 },
+      { name: 'Plaza', x: 0, z: 28 }, { name: 'Attacker Spawn', x: 0, z: 38 },
+    ],
+    pickups: [
+      { t: 'hp', x: 0, z: -16 }, { t: 'hp', x: 0, z: 34 }, { t: 'hp', x: -8, z: 7 }, { t: 'hp', x: 38, z: 20 },
+      { t: 'ammo', x: 0, z: 10 }, { t: 'ammo', x: -34, z: 24 }, { t: 'ammo', x: -24, z: -22 }, { t: 'ammo', x: 22, z: -22 }, { t: 'ammo', x: 30, z: 4 },
+    ],
+    env: {
+      sky: {
+        top: [0.012, 0.02, 0.04], mid: [0.05, 0.07, 0.11], hor: [0.34, 0.2, 0.1], horSun: [0.34, 0.2, 0.1],
+        sunDir: [0, -1, 0], sunGlow: [0, 0, 0], cloudDark: [0.05, 0.06, 0.09], cloudLit: [0.2, 0.15, 0.1],
+        below: [0.03, 0.03, 0.04], clouds: 0.5,
+      },
+      fog: { color: [0.07, 0.06, 0.07], density: 0.015 },
+      exposure: 1.1, bloom: 0.45,
+      hemi: { sky: 0x8090a8, ground: 0x3a2a20, intensity: 1.05 },
+      sun: { color: 0xffa860, intensity: 0.6, pos: [-30, 40, -20] },
+      floor: 'asphalt', wall: 'panel', wallLight: ORANGE,
+      lamps: [[-10, 24, ORANGE], [10, 24, ORANGE], [0, -4, ORANGE], [-30, 2, ORANGE], [30, 2, ORANGE], [-8, -26, ORANGE], [8, -26, ORANGE]],
+      wallSigns: [['FOUNDRY 9', ORANGE, 'N', 0, 9], ['HOT WORK', 0xff5a2a, 'S', -16, 6], ['FURNACE', ORANGE, 'N', -27, 5], ['DOCK', CYAN, 'N', 27, 5]],
+      rain: false, hologram: false, centerLight: ORANGE,
+      skyline: { color: 0x14161c, windows: 0.3, beacons: true },
     },
   },
 

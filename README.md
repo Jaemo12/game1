@@ -44,7 +44,9 @@ Free plan note: the server **sleeps after 15 minutes with nobody on it**. The fi
 
 **Grenades:** flashbang (blinds anyone who looks at it, including you), smoke (a 12 s cloud that blocks sight, bots included) and frag (up to about 115 damage, less with distance, needs a clear line). In Free-for-all and Team Deathmatch you spawn with one of each. In Demolition buy them in the menu (flash $200 x2, smoke $300, frag $400); you keep them if you survive the round. Bots buy and throw frags and flashes too.
 
-()=>`**Weapons:** Pulse Rifle (all-rounder), Scatter Gun (close range), Rail Sniper, Volt Pistol, Hand Cannon, Arc Blade (knife), **Hornet SMG** (very fast, good while moving, weak at range) and **Trident Burst** (one click fires 3 quick shots, accurate at distance).
+()=>`()=>`**Maps:** Dusk Yard, Harbor, Neon Alley, Neon Academy, Sunset Split, and two big strategic Demolition maps. **Dune Bazaar** (88 m, sunny): five routes north (a long west lane, a narrow alley, a covered souk in the middle, a tight east alley and an east lane), two sites with two doors each (B also has a window to jump through) and a high ledge over each site, reached with a step crate. **Foundry** (80 m, dark industrial): a pipe alley on the west, a walled hall in the middle with a catwalk you climb from either end that covers both door lines, and a container maze on the east with stacks you can climb. Both have named callouts for the minimap and chat.
+
+**Weapons:**` Pulse Rifle (all-rounder), Scatter Gun (close range), Rail Sniper, Volt Pistol, Hand Cannon, Arc Blade (knife), **Hornet SMG** (very fast, good while moving, weak at range) and **Trident Burst** (one click fires 3 quick shots, accurate at distance).
 
 **Characters, colors and skins:** 7 avatars (Kaze, Boss Mango, Glitch, Nyx, Governor Gull, Oni, Ember). In the menu you can also pick a **color** (changes the glow and your color in free-for-all) and a **gun skin** (recolors the glowing parts and muzzle flash of your guns). Both are saved, and friends see your color.
 
@@ -80,7 +82,7 @@ In team modes, bots split Red/Blue. 3 bots = 2v2, 5 = 3v3, 7 = 4v4. Mode rules (
 
 ## Easy things to tweak
 
-- **Maps:** four maps live in `MAPS` in `public/map.js` (Dusk Yard, Harbor, Neon Alley, Neon Academy), chosen in the menu. Each has `boxes` (`x`/`z` = center, `y` = bottom, `w`/`h`/`d` = size, `t` = material: concrete, barrier, crate, container, steel, brick, `p` = paint, `c` = small neon accent), `spawns`, and an `env` block for its look (sky, fog, sun, lamps, signs, rain). To add a map, copy one entry and change it. Players jump about 1.4 m, so taller spots need a crate to climb.
+- **Maps:** seven maps live in `MAPS` in `public/map.js` (Dusk Yard, Harbor, Neon Alley, Neon Academy, Sunset Split, Dune Bazaar, Foundry), chosen in the menu. Each has `boxes` (`x`/`z` = center, `y` = bottom, `w`/`h`/`d` = size, `t` = material: concrete, barrier, crate, container, steel, brick, `p` = paint, `c` = small neon accent), `spawns`, and an `env` block for its look (sky, fog, sun, lamps, signs, rain). To add a map, copy one entry and change it. Players jump about 1.4 m, so taller spots need a crate to climb.
 - **Glow:** the bloom settings are on the `UnrealBloomPass` line in `public/game.js` (strength, radius, threshold).
 - **Weapons:** `WEAPONS` in `public/map.js` has the Pulse Rifle, Scatter Gun, Rail Sniper, Volt Pistol, Hand Cannon, Hornet SMG, Trident Burst and Arc Blade (knife). Each one's damage, fire rate, spread, zoom, recoil, magazine and reload time are there, with a comment explaining every field. Bot versions of the weapons are tuned in `BOT_GUNS` in `public/game.js`.
 - **Bot difficulty:** the `DIFF` table near the top of `public/game.js`.

@@ -349,6 +349,22 @@ function addProp([kind, px, pz, rot = 0, color]) {
     decoBox(1.8, 0.4, 0.06, 0, 0.8, -0.22, plain(0x7a5a3a), g);
     for (const lx of [-0.8, 0.8]) decoBox(0.08, 0.5, 0.45, lx, 0.25, 0, plain(0x2a2a2e, { metal: 0.5 }), g);
     cw = 1.8; cd = 0.5; ch = 0.9;
+  } else if (kind === 'stall') { // market stall: counter, goods, striped canopy
+    decoBox(2.4, 0.9, 1.1, 0, 0.45, 0, plain(0x8a6a42), g);
+    decoBox(2.2, 0.08, 0.9, 0, 0.94, 0, plain(0xe8dcc0), g);
+    for (const [gx, gc] of [[-0.7, 0xd8402a], [0, 0xe8b02a], [0.7, 0x4a9a3a]]) decoBox(0.45, 0.22, 0.45, gx, 1.1, 0, plain(gc, { rough: 0.9 }), g);
+    for (const [px2, pz2] of [[-1.1, -0.5], [1.1, -0.5], [-1.1, 0.5], [1.1, 0.5]]) decoBox(0.07, 2.3, 0.07, px2, 1.15, pz2, plain(0x5a4028), g);
+    for (let i = 0; i < 5; i++) decoBox(0.5, 0.06, 1.5, -1.0 + i * 0.5, 2.3, 0, plain(i % 2 ? 0xf4f0e4 : col, { rough: 0.9 }), g);
+    cw = 2.4; cd = 1.1; ch = 0.95;
+  } else if (kind === 'fountain') {
+    const basin = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.6, 0.7, 24), plain(0xb9a88c));
+    basin.position.y = 0.35; basin.castShadow = true; g.add(basin);
+    const water = new THREE.Mesh(new THREE.CylinderGeometry(2.1, 2.1, 0.05, 24), plain(0x4fa8d8, { rough: 0.1, metal: 0.3, glow: 0x2a78a8, glowK: 0.5 }));
+    water.position.y = 0.66; g.add(water);
+    decoBox(0.5, 1.8, 0.5, 0, 1.1, 0, plain(0xc9b898), g);
+    const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.4, 0.3, 16), plain(0xb9a88c));
+    bowl.position.y = 2.1; g.add(bowl);
+    cw = cd = 5; ch = 0.7;
   } else if (kind === 'post') { // street lamp: pole + glowing head, no collision
     decoBox(0.14, 4.6, 0.14, 0, 2.3, 0, plain(0x2a2a2e, { metal: 0.5 }), g);
     decoBox(0.9, 0.1, 0.3, 0.3, 4.65, 0, plain(0x2a2a2e), g);
@@ -1524,6 +1540,8 @@ const MAP_LOOK = {
   yard: ['linear-gradient(#1a2348, #4a3058 55%, #e07a4a)', '#2a2a2e'],
   harbor: ['linear-gradient(#3a78c8, #8fb8e8 60%, #dfe8f0)', '#a8a49a'],
   alley: ['linear-gradient(#05040d, #1a0b2e 55%, #6a1450)', '#14141c'],
+  bazaar: ['linear-gradient(#3a78c8, #d8c8a0 62%, #e8cf9a)', '#a89270'],
+  foundry: ['linear-gradient(#05070c, #1a1612 60%, #6a3a1a)', '#1a1a1e'],
   split: ['linear-gradient(#1a2348, #6a3a58 55%, #ffa060)', '#3a3430'],
   academy: ['linear-gradient(#020414, #0e1440 55%, #3a1a6a)', 'linear-gradient(90deg, #14182a 45%, #00b8ff 45% 50%, #14182a 50%)'],
 };
